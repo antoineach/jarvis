@@ -753,6 +753,10 @@ def _check_and_update_diary(
         debug_log("diary update skipped: dialogue_memory is None", "memory")
         _notify("complete", False)
         return
+    if getattr(cfg, "memory_write", "all") == "off":
+        debug_log("diary update skipped: memory_write is off", "memory")
+        _notify("complete", False)
+        return
 
     try:
         should_update = force or _global_dialogue_memory.should_update_diary()

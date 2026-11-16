@@ -1421,6 +1421,8 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
     # For queries the planner classified as reply-only ("what are you
     # thinking", a greeting, a pure opinion) this skips an LLM call we'd
     # have paid unconditionally in the old flow.
+    if enrichment_source == "none":          # short-term (in-session) memory only
+        needs_memory = False
     if needs_memory:
         try:
             _extractor_query = redacted

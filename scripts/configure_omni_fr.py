@@ -139,6 +139,10 @@ def preset(args, current: dict) -> dict:
         "stop_commands": FR_STOP,
         "wake_aliases": sorted(set(current.get("wake_aliases", [])) | set(FR_WAKE_ALIASES)),
         "location_auto_detect": True,
+        # Short-term memory only: the conversation of the session, nothing filed or recalled
+        # across sessions (a 4B model mis-files facts and recalls its own wrong answers).
+        "memory_write": "off",
+        "memory_enrichment_source": "none",
     }
     if args.stt == "whisper":
         p.update({"whisper_backend": "auto", "whisper_model": args.whisper_model,

@@ -1802,6 +1802,10 @@ def get_relevant_conversation_context(
     )
 
 
+class _SkipGraph(Exception):
+    pass
+
+
 def update_diary_from_dialogue_memory(
     db: Database,
     dialogue_memory: DialogueMemory,
@@ -1828,6 +1832,10 @@ def update_diary_from_dialogue_memory(
     Returns the summary ID if successful, None otherwise.
     """
     debug_log(f"update_diary_from_dialogue_memory called: force={force}", "memory")
+    write_mode = getattr(cfg, "memory_write", "all")
+    if write_mode == "off":
+        debug_log("diary update skipped: memory_write is off", "memory")
+        return None
 
     if not force and not dialogue_memory.should_update_diary():
         debug_log("diary update skipped: should_update_diary=False and force=False", "memory")
@@ -1880,7 +1888,11 @@ def update_diary_from_dialogue_memory(
             debug_log(f"marked messages saved up to timestamp {snapshot_timestamp}", "memory")
 
             # Graph failure preserves the completed diary save.
+            # memory_write "diary": keep the daily summary, skip the extracted facts (a small model
+            # mis-attributes them, e.g. "the user stated that Jarvis is handsome" filed under User).
             try:
+                if write_mode == "diary":
+                    raise _SkipGraph()
                 from .graph import GraphMemoryStore
                 from .graph_ops import update_graph_from_dialogue
 
@@ -1945,6 +1957,8 @@ def update_diary_from_dialogue_memory(
                             f"{skipped} duplicates skipped",
                             "memory",
                         )
+            except _SkipGraph:
+                debug_log("graph memory skipped: memory_write is 'diary'", "memory")
             except Exception as e:
                 debug_log(f"graph memory update failed (non-fatal): {e}", "memory")
 
