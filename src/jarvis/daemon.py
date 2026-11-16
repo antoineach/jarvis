@@ -1120,7 +1120,7 @@ def _run_daemon(smoke_test: bool = False) -> None:
                 debug_log("dictation ended — listener resumed", "dictation")
 
             dictation = _DE(
-                whisper_model_ref=lambda: voice_thread.model,
+                whisper_model_ref=lambda: getattr(voice_thread, "_nemo_stt", None) or voice_thread.model,
                 whisper_backend_ref=lambda: voice_thread._whisper_backend,
                 mlx_repo_ref=lambda: voice_thread._mlx_model_repo,
                 hotkey=cfg.dictation_hotkey,

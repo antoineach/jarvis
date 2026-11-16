@@ -46,12 +46,9 @@ def find_tts_python() -> str | None:
 
 def preset(args, current: dict) -> dict:
     p: dict = {
-        # Speech recognition: French forced (no per-utterance detection, no misdetected
-        # short commands), large-v3-turbo: better French WER than medium, 4-layer decoder.
+        # Speech recognition, French forced. Parakeet v3 (default): CoVoST2 fr WER 6.05 vs 11.02 for
+        # Whisper large-v3 (arXiv 2509.14128), int8 on CPU leaves the GPU to the LLM and the voice.
         "whisper_language": "fr",
-        "whisper_model": args.whisper_model,
-        "whisper_device": "cuda",
-        "whisper_compute_type": "int8_float16",
         # Speech output: Qwen3-TTS streamed, French.
         "tts_engine": "qwen3",
         "tts_qwen3_language": "French",
@@ -68,6 +65,13 @@ def preset(args, current: dict) -> dict:
         "wake_aliases": sorted(set(current.get("wake_aliases", [])) | set(FR_WAKE_ALIASES)),
         "location_auto_detect": True,
     }
+    if args.stt == "whisper":
+        p.update({"whisper_backend": "auto", "whisper_model": args.whisper_model,
+                  "whisper_device": "cuda", "whisper_compute_type": "int8_float16"})
+    else:
+        p.update({"whisper_backend": "parakeet", "whisper_device": args.stt_device,
+                  "stt_model": "nemo-canary-1b-v2" if args.stt == "canary" else "nemo-parakeet-tdt-0.6b-v3",
+                  "stt_quantization": "int8" if args.stt_device == "cpu" else None})
     py = args.tts_python or current.get("tts_qwen3_python") or find_tts_python()
     if py:
         p["tts_qwen3_python"] = py
@@ -91,8 +95,11 @@ def main() -> None:
     ap.add_argument("--speaker", help="built-in Qwen3 voice instead of cloning (e.g. vivian, serena, ryan)")
     ap.add_argument("--tts-python", help="python of the Qwen3-TTS environment (auto-detected)")
     ap.add_argument("--llm-url", help="OpenAI-compatible server, e.g. http://127.0.0.1:8080/v1 (llama-server)")
-    ap.add_argument("--whisper-model", default="large-v3-turbo",
-                    help="large-v3-turbo (default), medium, small (less VRAM)")
+    ap.add_argument("--stt", choices=["parakeet", "canary", "whisper"], default="parakeet",
+                    help="speech recognition: parakeet (default), canary (1B), whisper")
+    ap.add_argument("--stt-device", choices=["cpu", "auto"], default="cpu",
+                    help="cpu (default, int8, keeps VRAM free) or auto (GPU if onnxruntime-gpu is installed)")
+    ap.add_argument("--whisper-model", default="large-v3-turbo", help="with --stt whisper")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 

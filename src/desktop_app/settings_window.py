@@ -277,7 +277,16 @@ def _build_field_metadata() -> List[FieldMeta]:
       "Speech recognition backend",
       "whisper", "choice",
       choices=[("auto", "Auto"), ("mlx", "MLX (Apple Silicon)"),
-               ("faster-whisper", "Faster Whisper")])
+               ("faster-whisper", "Faster Whisper"),
+               ("parakeet", "NVIDIA Parakeet / Canary (onnx-asr)")])
+    f("stt_model", "NVIDIA Model",
+      "Model for the Parakeet backend",
+      "whisper", "choice",
+      choices=[("nemo-parakeet-tdt-0.6b-v3", "Parakeet TDT 0.6B v3 (fast, recommended)"),
+               ("nemo-canary-1b-v2", "Canary 1B v2 (larger, needs whisper_language)")])
+    f("whisper_language", "Language",
+      "Force the spoken language (ISO code, e.g. fr). Empty = auto-detect",
+      "whisper", "str")
     f("whisper_device", "Compute Device",
       "Device for Whisper inference",
       "whisper", "choice",

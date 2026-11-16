@@ -1176,6 +1176,12 @@ class DictationEngine:
             model = self._whisper_model_ref()
             if backend == "mlx":
                 return self._transcribe_mlx(audio)
+            elif backend == "parakeet" and model is not None:
+                try:
+                    return model.transcribe(audio)
+                except Exception as exc:
+                    debug_log(f"parakeet dictation error: {exc}", "dictation")
+                    return ""
             elif model is not None:
                 return self._transcribe_faster_whisper(model, audio)
             else:

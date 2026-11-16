@@ -30,6 +30,8 @@ chatterbox-tts==0.1.2
 piper-tts>=1.3.0
 pygame>=2.1.0
 faiss-cpu>=1.7.4
+# NVIDIA Parakeet / Canary speech recognition (whisper_backend "parakeet"); uses the onnxruntime piper installs
+onnx-asr[hub]>=0.12
 
 # NVIDIA CUDA libraries for GPU-accelerated speech recognition on Windows
 nvidia-cublas-cu12>=12.8.0; sys_platform == "win32"

@@ -185,7 +185,9 @@ class Settings:
 
     # Whisper Speech Recognition
     whisper_model: str
-    whisper_backend: str  # "auto", "mlx", or "faster-whisper"
+    whisper_backend: str  # "auto", "mlx", "faster-whisper" or "parakeet" (NVIDIA Parakeet/Canary via onnx-asr)
+    stt_model: str  # onnx-asr model for the "parakeet" backend
+    stt_quantization: Optional[str]  # None (full precision) or "int8"
     whisper_device: str  # "cuda", "auto", or "cpu" (only for faster-whisper)
     whisper_compute_type: str
     whisper_language: Optional[str]  # ISO-639-1 code to force (e.g. "fr"); None = auto-detect
@@ -604,6 +606,8 @@ def get_default_config() -> Dict[str, Any]:
 
         # Whisper Speech Recognition
         "whisper_model": "medium",
+        "stt_model": "nemo-parakeet-tdt-0.6b-v3",  # or "nemo-canary-1b-v2" (whisper_backend "parakeet")
+        "stt_quantization": None,  # "int8" halves memory, slight accuracy cost
         "whisper_backend": "auto",  # "auto" (MLX on Apple Silicon, else faster-whisper), "mlx", or "faster-whisper"
         "whisper_device": "auto",  # "cuda" (recommended if available), "auto", or "cpu" (only for faster-whisper)
         "whisper_compute_type": "int8",
@@ -840,7 +844,7 @@ def load_settings() -> Settings:
     wake_fuzzy_ratio = float(merged.get("wake_fuzzy_ratio", 0.78))
     whisper_model = _expand_model_reference(merged.get("whisper_model")) or "medium"
     whisper_backend = os.environ.get("JARVIS_WHISPER_BACKEND", "").lower() or str(merged.get("whisper_backend", "auto")).lower()
-    if whisper_backend not in ("auto", "mlx", "faster-whisper"):
+    if whisper_backend not in ("auto", "mlx", "faster-whisper", "parakeet"):
         whisper_backend = "auto"
     whisper_device = str(merged.get("whisper_device", "auto")).lower()
     if whisper_device not in ("cuda", "auto", "cpu"):
@@ -1018,6 +1022,8 @@ def load_settings() -> Settings:
         # Whisper Speech Recognition
         whisper_model=whisper_model,
         whisper_backend=whisper_backend,
+        stt_model=str(merged.get("stt_model") or "nemo-parakeet-tdt-0.6b-v3"),
+        stt_quantization=(str(merged.get("stt_quantization") or "").strip() or None),
         whisper_device=whisper_device,
         whisper_compute_type=whisper_compute_type,
         whisper_language=whisper_language,

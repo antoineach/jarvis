@@ -465,6 +465,7 @@ class VoiceListener(threading.Thread):
         self._slow_transcription_streak = 0
         self._slow_transcription_warned = False
         self.transcribe_lock = threading.Lock()  # Shared lock for Whisper model access
+        self._nemo_stt = None  # Parakeet/Canary engine when whisper_backend == "parakeet"
         self._audio_q: queue.Queue = queue.Queue(maxsize=64)
         self._transcription_jobs_q: queue.Queue = queue.Queue(maxsize=8)
         self._transcription_results_q: queue.Queue = queue.Queue(maxsize=8)
@@ -1568,6 +1569,9 @@ class VoiceListener(threading.Thread):
         if backend_pref == "faster-whisper":
             return "faster-whisper"
 
+        if backend_pref == "parakeet":
+            return "parakeet"
+
         # Auto mode: prefer MLX on Apple Silicon
         if MLX_WHISPER_AVAILABLE and _is_apple_silicon():
             return "mlx"
@@ -1905,7 +1909,7 @@ class VoiceListener(threading.Thread):
         model_name = getattr(self.cfg, "whisper_model", "small")
 
         # Validate large-v3-turbo support for faster-whisper backend
-        if model_name == "large-v3-turbo" and self._whisper_backend != "mlx":
+        if model_name == "large-v3-turbo" and self._whisper_backend not in ("mlx", "parakeet"):
             if not whisper_capabilities.is_faster_whisper_turbo_supported():
                 debug_log(
                     "faster-whisper does not support large-v3-turbo, "
@@ -1918,7 +1922,10 @@ class VoiceListener(threading.Thread):
                 )
                 model_name = "medium"
 
-        if self._whisper_backend == "mlx":
+        if self._whisper_backend == "parakeet":
+            if not self._init_nemo_stt():
+                return
+        elif self._whisper_backend == "mlx":
             if not MLX_WHISPER_AVAILABLE:
                 debug_log("MLX Whisper not available", "voice")
                 print("  ❌ MLX Whisper not available. Install with: pip install mlx-whisper", flush=True)
@@ -2595,12 +2602,40 @@ class VoiceListener(threading.Thread):
             debug_log("Whisper speech guard returned no segments", "voice")
         return decoded, info
 
+    def _init_nemo_stt(self) -> bool:
+        """Load Parakeet/Canary (onnx-asr). Returns False when speech recognition is unavailable."""
+        from .nemo_stt import NemoSTT
+        name = getattr(self.cfg, "stt_model", "") or "nemo-parakeet-tdt-0.6b-v3"
+        print(f"🎤 Preparing speech recognition '{name}' (first run downloads the model)...", flush=True)
+        try:
+            self._nemo_stt = NemoSTT(name, device=getattr(self.cfg, "whisper_device", "auto"),
+                                     quantization=getattr(self.cfg, "stt_quantization", None),
+                                     language=getattr(self.cfg, "whisper_language", None))
+            if np is not None:   # warm-up: first ONNX run allocates CUDA memory and kernels
+                rng = np.random.default_rng(0)
+                self._nemo_stt.transcribe(rng.standard_normal(self._samplerate).astype(np.float32) * 0.01)
+        except ImportError:
+            print("  ❌ onnx-asr not installed. Install with: pip install onnx-asr[hub] onnxruntime-gpu", flush=True)
+            return False
+        except Exception as e:
+            debug_log(f"failed to initialise NeMo STT: {e}", "voice")
+            print(f"  ❌ Failed to load speech recognition '{name}': {e}", flush=True)
+            return False
+        print(f"     🎤 {name} ready ({self._nemo_stt.device})", flush=True)
+        return True
+
     def _transcribe_audio(self, audio) -> tuple[str, Optional[str], tuple[LowConfidenceEvent, ...]]:
         """Run Whisper and return filtered text, language and rejection events."""
         detected = None
         low_confidence_events = []
         try:
-            if self._whisper_backend == "mlx":
+            if self._whisper_backend == "parakeet":
+                # No language output and no per-segment confidence: the VAD already gates silence,
+                # and the transducer does not hallucinate on it the way Whisper does.
+                with self.transcribe_lock:
+                    text = self._nemo_stt.transcribe(audio, self._samplerate)
+                detected = getattr(self.cfg, "whisper_language", None)
+            elif self._whisper_backend == "mlx":
                 # MLX Whisper transcription
                 with self.transcribe_lock:
                     result = mlx_whisper.transcribe(

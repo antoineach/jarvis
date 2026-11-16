@@ -65,4 +65,61 @@ def test_preset_script_merges_and_keeps_user_keys(tmp_path):
     assert out["tts_qwen3_audio_prompt"] == str(voice.resolve())
     assert out["whisper_language"] == "fr" and out["planner_enabled"] is False
     assert out["tool_selection_strategy"] == "llm"          # MCP tools present: keep the router
+    assert out["whisper_backend"] == "parakeet" and out["stt_quantization"] == "int8"
     assert (tmp_path / "config.json.bak").exists()
+
+
+class _FakeAsr:
+    def __init__(self):
+        self.calls = []
+
+    def recognize(self, audio, sample_rate=16000, **kw):
+        self.calls.append((len(audio), sample_rate, kw))
+        return "  Quelle heure est-il ?  "
+
+
+def _nemo(model, language=None):
+    from jarvis.listening.nemo_stt import NemoSTT
+    fake = _FakeAsr()
+    stt = NemoSTT(model, device="cpu", language=language, loader=lambda name, **kw: fake)
+    return stt, fake
+
+
+def test_parakeet_transcribes_without_language_prompt():
+    import numpy as np
+    stt, fake = _nemo("nemo-parakeet-tdt-0.6b-v3", language="fr")
+    assert stt.transcribe(np.zeros(16000, np.float32)) == "Quelle heure est-il ?"
+    assert fake.calls == [(16000, 16000, {})] and stt.device == "cpu"
+
+
+def test_canary_gets_the_configured_language():
+    import numpy as np
+    stt, fake = _nemo("nemo-canary-1b-v2", language="fr")
+    stt.transcribe(np.zeros(8000, np.float32))
+    assert fake.calls[0][2] == {"language": "fr"}
+
+
+def test_empty_audio_is_not_sent_to_the_model():
+    import numpy as np
+    stt, fake = _nemo("nemo-parakeet-tdt-0.6b-v3")
+    assert stt.transcribe(np.zeros(0, np.float32)) == "" and fake.calls == []
+
+
+def test_parakeet_backend_is_accepted_by_config(tmp_path, monkeypatch):
+    s = _load(tmp_path, monkeypatch, {"whisper_backend": "parakeet", "stt_model": "nemo-canary-1b-v2"})
+    assert s.whisper_backend == "parakeet" and s.stt_model == "nemo-canary-1b-v2"
+
+
+def test_listener_routes_transcription_to_parakeet():
+    import threading
+    import types
+
+    import numpy as np
+    from jarvis.listening.listener import VoiceListener
+
+    stt, fake = _nemo("nemo-parakeet-tdt-0.6b-v3")
+    me = types.SimpleNamespace(_whisper_backend="parakeet", _nemo_stt=stt, _samplerate=16000,
+                               transcribe_lock=threading.Lock(),
+                               cfg=types.SimpleNamespace(whisper_language="fr"))
+    text, lang, events = VoiceListener._transcribe_audio(me, np.zeros(16000, np.float32))
+    assert (text, lang, events) == ("Quelle heure est-il ?", "fr", ())
