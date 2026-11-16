@@ -100,9 +100,8 @@ def test_config_keeps_qwen3_engine(tmp_path, monkeypatch):
     import json
 
     from jarvis.config import load_settings
-    cfg_file = tmp_path / "jarvis" / "config.json"
-    cfg_file.parent.mkdir()
+    cfg_file = tmp_path / "config.json"
     cfg_file.write_text(json.dumps({"tts_engine": "qwen3", "tts_qwen3_language": "French"}))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setenv("JARVIS_CONFIG_PATH", str(cfg_file))
     s = load_settings()
     assert s.tts_engine == "qwen3" and s.tts_qwen3_language == "French"
