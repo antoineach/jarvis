@@ -537,6 +537,23 @@ def _extract_text_tool_call(content_field: str, known_names: set):
         re.escape(name) for name in sorted(known_names, key=len, reverse=True)
     ) + r")\s*"
 
+    # Form: Gemma 4 native call `toolName{key:<|"|>value<|"|>,n:3}` — Gemma 4 and its
+    # post-trained variants (e.g. Nemotron 3.5 Bolt) sometimes emit their native call
+    # syntax in the content field when the server's chat template does not parse it.
+    # Only known tool names are accepted, so prose with braces is never hijacked.
+    gm = re.search(r"([A-Za-z_][A-Za-z0-9_.]*)\s*\{(.*?)\}", content_field.replace('<|"|>', '"'), re.DOTALL)
+    if gm and gm.group(1) in known_names:
+        gargs: dict = {}
+        for k, v in re.findall(r'([A-Za-z_][A-Za-z0-9_]*)\s*:\s*("(?:[^"\\]|\\.)*"|-?\d+(?:\.\d+)?|true|false)',
+                               gm.group(2)):
+            if v.startswith('"'):
+                gargs[k] = json.loads(v)
+            elif v in ("true", "false"):
+                gargs[k] = v == "true"
+            else:
+                gargs[k] = float(v) if "." in v else int(v)
+        return gm.group(1), gargs, f"call_{uuid.uuid4().hex[:8]}"
+
     # Form: `toolName: key: value` — only accept if the first segment is a known tool.
     m = re.match(name_prefix + r":\s*(.*)$", stripped, re.DOTALL)
     if m and m.group(1) in known_names:
@@ -647,6 +664,8 @@ _HINT_MESSAGE_CHAR_LIMIT = 200
 _DIGEST_SKIP_TOOLS = frozenset({
     "getWeather",
     "getTime",
+    "timer",
+    "calculate",
 })
 
 

@@ -70,7 +70,8 @@ For an experimental 27B alternative, see the [Bonsai 2 local setup guide](docs/B
 
 - **A third person in the room.** Bring Jarvis into an ongoing conversation with friends, talk through a problem aloud, or ask it to weigh in on a decision. “Jarvis, what do you think?” draws on the recent discussion, not just that one sentence.
 - **Remember beyond one session.** Ask about past conversations, preferences and plans. Browse your local diary and knowledge graph in the Memory Viewer.
-- **Get things done.** Built-in tools cover web search, weather, time, screenshot OCR, file access, optional search across your text and Markdown folders, nutrition tracking and optional location awareness.
+- **Get things done.** Built-in tools cover web search, weather, time, countdown timers announced out loud, exact calculations, screenshot OCR, file access, optional search across your text and Markdown folders, nutrition tracking and optional location awareness.
+- **Safe with your home.** Actions on locks, alarms and garage doors through MCP (e.g. Home Assistant) are held until you confirm them in a later message, enforced in code rather than left to the model, so an instruction hidden in a web page cannot open your door.
 - **Connect your own tools.** MCP servers add browser automation, smart-home controls and other integrations.
 - **Dictate into other apps.** Hold a hotkey, speak, then release to paste locally transcribed text. See the [platform limitations](#known-limitations) first.
 - **Type when you need to.** The companion chat shares your voice conversation and memory. Text replies are silent, and you can rewind a sent message to regenerate from that point.

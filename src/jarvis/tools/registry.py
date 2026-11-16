@@ -20,6 +20,9 @@ from .builtin.weather import WeatherTool
 from .builtin.time_tool import TimeTool
 from .builtin.stop import StopTool
 from .builtin.tool_search import ToolSearchTool
+from .builtin.timer import TimerTool
+from .builtin.calculate import CalculateTool
+from . import safety
 from .types import ToolExecutionResult
 from ..config import Settings
 from .external.mcp_client import MCPClient
@@ -41,6 +44,8 @@ BUILTIN_TOOLS = {
     "getTime": TimeTool(),
     "stop": StopTool(),
     "toolSearchTool": ToolSearchTool(),
+    "timer": TimerTool(),
+    "calculate": CalculateTool(),
 }
 
 # Global MCP tools cache
@@ -320,6 +325,10 @@ def run_tool_with_retries(
                 if MCPClient is None:
                     return ToolExecutionResult(success=False, reply_text=None, error_message="MCP client not available. Install 'mcp' package.")
 
+                patterns = getattr(cfg, "sensitive_tool_patterns", None) or safety.DEFAULT_PATTERNS
+                blocked, tool_args = safety.gate(raw_name, tool_args, original_prompt or "", patterns)
+                if blocked is not None:
+                    return blocked
                 client = MCPClient(mcps_config)
                 result = client.invoke_tool(server_name=server_name, tool_name=mcp_tool_name, arguments=tool_args or {})
                 is_error = bool(result.get("isError", False))

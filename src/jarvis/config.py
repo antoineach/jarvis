@@ -276,6 +276,8 @@ class Settings:
 
     # Web Search
     web_search_enabled: bool
+    sensitive_tool_patterns: list  # MCP calls matching these (tool name or args) need explicit user confirmation
+    timer_announcement: str  # Spoken when a timer ends; {label} is replaced by the timer name
     # Optional Brave Search API key. When set, Brave is used as the primary
     # fallback when DuckDuckGo is rate-limited or returns no usable content.
     # Empty string means "not configured" — the tool then falls through to
@@ -685,6 +687,8 @@ def get_default_config() -> Dict[str, Any]:
 
         # Web Search
         "web_search_enabled": True,
+        "sensitive_tool_patterns": ["lock", "alarm", "garage"],
+        "timer_announcement": "{label}: time's up!",
         "brave_search_api_key": "",
         "wikipedia_fallback_enabled": True,
         "background_tasks_enabled": False,
@@ -915,6 +919,9 @@ def load_settings() -> Settings:
     location_auto_detect = bool(merged.get("location_auto_detect", True))
     location_cgnat_resolve_public_ip = bool(merged.get("location_cgnat_resolve_public_ip", True))
     web_search_enabled = bool(merged.get("web_search_enabled", True))
+    _patterns = merged.get("sensitive_tool_patterns", ["lock", "alarm", "garage"])
+    sensitive_tool_patterns = [str(p) for p in _patterns] if isinstance(_patterns, list) else ["lock", "alarm", "garage"]
+    timer_announcement = str(merged.get("timer_announcement") or "{label}: time's up!")
     brave_search_api_key = str(merged.get("brave_search_api_key", "") or "").strip()
     wikipedia_fallback_enabled = bool(merged.get("wikipedia_fallback_enabled", True))
     background_tasks_enabled = merged["background_tasks_enabled"] is True
@@ -1061,6 +1068,8 @@ def load_settings() -> Settings:
 
         # Web Search
         web_search_enabled=web_search_enabled,
+        sensitive_tool_patterns=sensitive_tool_patterns,
+        timer_announcement=timer_announcement,
         brave_search_api_key=brave_search_api_key,
         wikipedia_fallback_enabled=wikipedia_fallback_enabled,
         background_tasks_enabled=background_tasks_enabled,

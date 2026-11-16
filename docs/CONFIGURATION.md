@@ -439,3 +439,20 @@ Get API key at [composio.dev](https://composio.dev)
 **Jarvis keeps deflecting on questions it answered before** - small models can record their own past failures into the diary, which then primes future sessions to repeat them. New writes are scrubbed automatically; to clean historical entries, open the Memory Viewer, switch to the Diary tab, and click **Clean up deflection narration** in the sidebar Maintenance section. Only sentences that narrate the assistant's failures are removed; the rest of each entry stays.
 
 </details>
+
+
+<details>
+<summary><strong>Sensitive actions and timers</strong></summary>
+
+MCP tool calls whose name or arguments contain one of `sensitive_tool_patterns` are not executed directly. Jarvis asks you to confirm, and only runs the action after your next message confirms it. This is enforced in code: an instruction injected in a web page or tool result can only lead to a question, never to the action.
+```json
+{ "sensitive_tool_patterns": ["lock", "alarm", "garage"] }
+```
+
+Timers are announced with `timer_announcement` (`{label}` is the timer name). Set it in your language:
+```json
+{ "timer_announcement": "Le minuteur {label} est terminé !" }
+```
+Timers live in memory and are lost if Jarvis restarts.
+
+</details>

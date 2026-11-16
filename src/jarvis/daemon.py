@@ -1070,6 +1070,8 @@ def _run_daemon(smoke_test: bool = False) -> None:
                "backend": cfg.tts_qwen3_backend, "output": cfg.tts_qwen3_output},
     )
     _global_tts_engine = tts  # Expose for face widget speaking animation
+    from .tools.builtin.timer import set_ring_handler
+    set_ring_handler(lambda label: tts.speak(cfg.timer_announcement.replace("{label}", label)))
     _start_tts_engine(tts)
 
     _global_task_manager = _create_task_service(db, cfg, _global_dialogue_memory)
