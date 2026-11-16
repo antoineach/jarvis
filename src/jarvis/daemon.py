@@ -1063,6 +1063,11 @@ def _run_daemon(smoke_test: bool = False) -> None:
         piper_noise_scale=cfg.tts_piper_noise_scale,
         piper_noise_w=cfg.tts_piper_noise_w,
         piper_sentence_silence=cfg.tts_piper_sentence_silence,
+        # Qwen3-TTS parameters
+        qwen3={"python": cfg.tts_qwen3_python, "mode": cfg.tts_qwen3_mode,
+               "audio_prompt_path": cfg.tts_qwen3_audio_prompt, "speaker": cfg.tts_qwen3_speaker,
+               "size": cfg.tts_qwen3_size, "language": cfg.tts_qwen3_language,
+               "backend": cfg.tts_qwen3_backend, "output": cfg.tts_qwen3_output},
     )
     _global_tts_engine = tts  # Expose for face widget speaking animation
     _start_tts_engine(tts)

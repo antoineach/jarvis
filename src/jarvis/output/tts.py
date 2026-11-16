@@ -1162,13 +1162,19 @@ def create_tts_engine(
     piper_noise_scale: float = 0.667,
     piper_noise_w: float = 0.8,
     piper_sentence_silence: float = 0.2,
+    # Qwen3-TTS parameters
+    qwen3: Optional[dict] = None,
 ):
     """Factory function to create the appropriate TTS engine.
 
     Supported engines:
     - "piper" (default): Neural TTS with auto-download, exact duration tracking
     - "chatterbox": AI voice with emotion control (requires PyTorch)
+    - "qwen3": Qwen3-TTS on a local GPU, voice cloning, streaming playback (separate Python env)
     """
+    if engine.lower() == "qwen3":
+        from .qwen3_tts import Qwen3TTS
+        return Qwen3TTS(enabled=enabled, rate=rate, **(qwen3 or {}))
     if engine.lower() == "chatterbox":
         return ChatterboxTTS(
             enabled=enabled,

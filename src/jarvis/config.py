@@ -141,13 +141,23 @@ class Settings:
 
     # Text-to-Speech
     tts_enabled: bool
-    tts_engine: str  # "piper" (default) or "chatterbox"
+    tts_engine: str  # "piper" (default), "chatterbox" or "qwen3"
     tts_voice: str | None
     tts_rate: int | None  # Words per minute (WPM), 200=normal
     tts_chatterbox_device: str  # "cuda", "auto", or "cpu" for Chatterbox
     tts_chatterbox_audio_prompt: str | None  # Path to audio file for voice cloning with Chatterbox
     tts_chatterbox_exaggeration: float  # Emotion exaggeration control (0.0-1.0+)
     tts_chatterbox_cfg_weight: float  # CFG weight for quality/speed trade-off
+
+    # Qwen3-TTS (local GPU, voice cloning, streaming playback)
+    tts_qwen3_python: str | None  # Interpreter of the separate env that has faster-qwen3-tts installed
+    tts_qwen3_mode: str  # "clone" (voice from tts_qwen3_audio_prompt) or "expressive" (built-in voice)
+    tts_qwen3_audio_prompt: str | None  # Reference recording (5-15 s, one speaker) for clone mode
+    tts_qwen3_speaker: str | None  # Built-in voice for expressive mode (e.g. "ryan")
+    tts_qwen3_size: str  # "0.6B" (fits next to the LLM on 8 GB) or "1.7B"
+    tts_qwen3_language: str  # "Auto" or a language name such as "French"
+    tts_qwen3_backend: str  # "torch" (CUDA graphs) or "ggml" (experimental)
+    tts_qwen3_output: str  # "auto" (pacat under WSL), "pulse" or "portaudio"
 
     # Piper TTS
     tts_piper_model_path: str | None  # Path to .onnx voice model
@@ -551,13 +561,21 @@ def get_default_config() -> Dict[str, Any]:
 
         # Text-to-Speech
         "tts_enabled": True,
-        "tts_engine": "piper",  # "piper" (default) or "chatterbox"
+        "tts_engine": "piper",  # "piper" (default), "chatterbox" or "qwen3"
         "tts_voice": None,
         "tts_rate": 200,  # Words per minute (WPM), 200=normal
         "tts_chatterbox_device": "cuda",  # "cuda" (recommended), "auto", or "cpu"
         "tts_chatterbox_audio_prompt": None,  # Path to audio file for voice cloning
         "tts_chatterbox_exaggeration": 0.5,  # Emotion exaggeration (0.0-1.0+)
-        "tts_chatterbox_cfg_weight": 0.5,  # CFG weight for quality/speed trade-off
+        "tts_chatterbox_cfg_weight": 0.5,
+        "tts_qwen3_python": None,  # e.g. "~/qwen3-tts-env/bin/python"
+        "tts_qwen3_mode": "clone",
+        "tts_qwen3_audio_prompt": None,
+        "tts_qwen3_speaker": None,
+        "tts_qwen3_size": "0.6B",
+        "tts_qwen3_language": "Auto",
+        "tts_qwen3_backend": "torch",
+        "tts_qwen3_output": "auto",  # CFG weight for quality/speed trade-off
 
         # Piper TTS
         "tts_piper_model_path": None,  # Path to .onnx voice model
@@ -777,6 +795,24 @@ def load_settings() -> Settings:
     tts_chatterbox_exaggeration = float(merged.get("tts_chatterbox_exaggeration", 0.5))
     tts_chatterbox_cfg_weight = float(merged.get("tts_chatterbox_cfg_weight", 0.5))
 
+    # Qwen3-TTS settings
+    tts_qwen3_python = _expand_path(merged.get("tts_qwen3_python"))
+    tts_qwen3_mode = str(merged.get("tts_qwen3_mode", "clone")).lower()
+    if tts_qwen3_mode not in ("clone", "expressive"):
+        tts_qwen3_mode = "clone"
+    tts_qwen3_audio_prompt = _expand_path(merged.get("tts_qwen3_audio_prompt"))
+    tts_qwen3_speaker = merged.get("tts_qwen3_speaker") or None
+    tts_qwen3_size = str(merged.get("tts_qwen3_size", "0.6B"))
+    if tts_qwen3_size not in ("0.6B", "1.7B"):
+        tts_qwen3_size = "0.6B"
+    tts_qwen3_language = str(merged.get("tts_qwen3_language", "Auto") or "Auto")
+    tts_qwen3_backend = str(merged.get("tts_qwen3_backend", "torch")).lower()
+    if tts_qwen3_backend not in ("torch", "ggml"):
+        tts_qwen3_backend = "torch"
+    tts_qwen3_output = str(merged.get("tts_qwen3_output", "auto")).lower()
+    if tts_qwen3_output not in ("auto", "pulse", "portaudio"):
+        tts_qwen3_output = "auto"
+
     # Piper TTS settings
     tts_piper_model_path = _expand_path(merged.get("tts_piper_model_path"))
     tts_piper_speaker_val = merged.get("tts_piper_speaker")
@@ -936,6 +972,14 @@ def load_settings() -> Settings:
         tts_chatterbox_audio_prompt=tts_chatterbox_audio_prompt,
         tts_chatterbox_exaggeration=tts_chatterbox_exaggeration,
         tts_chatterbox_cfg_weight=tts_chatterbox_cfg_weight,
+        tts_qwen3_python=tts_qwen3_python,
+        tts_qwen3_mode=tts_qwen3_mode,
+        tts_qwen3_audio_prompt=tts_qwen3_audio_prompt,
+        tts_qwen3_speaker=tts_qwen3_speaker,
+        tts_qwen3_size=tts_qwen3_size,
+        tts_qwen3_language=tts_qwen3_language,
+        tts_qwen3_backend=tts_qwen3_backend,
+        tts_qwen3_output=tts_qwen3_output,
 
         # Piper TTS
         tts_piper_model_path=tts_piper_model_path,

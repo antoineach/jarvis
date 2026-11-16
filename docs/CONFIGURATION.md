@@ -231,6 +231,21 @@ Voice cloning with Chatterbox - add a 3-10 second .wav sample:
 }
 ```
 
+**Qwen3-TTS** - local GPU voice cloning with streaming playback (speech starts before the sentence is fully synthesised). It runs in its own Python environment because qwen-tts pins transformers versions that conflict with Jarvis:
+```bash
+python3 -m venv ~/qwen3-tts-env
+~/qwen3-tts-env/bin/pip install torch --index-url https://download.pytorch.org/whl/cu128
+~/qwen3-tts-env/bin/pip install faster-qwen3-tts "transformers==5.15.1"
+```
+```json
+{
+  "tts_engine": "qwen3",
+  "tts_qwen3_python": "~/qwen3-tts-env/bin/python",
+  "tts_qwen3_audio_prompt": "/path/to/voice.wav"
+}
+```
+Use a 5-15 s mono recording of one speaker. `tts_qwen3_mode: "expressive"` uses a built-in voice (`tts_qwen3_speaker`) instead. The 0.6B model needs about 2.5 GB of VRAM and fits next to a 4B LLM on an 8 GB GPU. On mid-range GPUs (e.g. RTX 2070) generation runs near real time, so playback waits for a short adaptive buffer before starting. Under WSL, audio goes straight to PulseAudio (`pacat`) to avoid WSLg crackling. transformers 5.23 breaks the Qwen3-TTS codec; keep 5.15.1.
+
 </details>
 
 <details>

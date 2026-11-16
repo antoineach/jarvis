@@ -61,6 +61,7 @@ CATEGORIES = [
     ("tts", "🔊 Text-to-Speech"),
     ("piper", "🎵 Piper TTS"),
     ("chatterbox", "🎭 Chatterbox TTS"),
+    ("qwen3", "🎙️ Qwen3-TTS"),
     ("voice_input", "🎤 Voice Input"),
     ("wake", "👂 Wake Word"),
     ("whisper", "🗣️ Speech Recognition"),
@@ -182,7 +183,8 @@ def _build_field_metadata() -> List[FieldMeta]:
     f("tts_enabled", "Enable TTS", "Enable text-to-speech output",
       "tts", "bool")
     f("tts_engine", "TTS Engine", "Speech synthesis engine",
-      "tts", "choice", choices=[("piper", "Piper (Neural)"), ("chatterbox", "Chatterbox (Voice Cloning)")])
+      "tts", "choice", choices=[("piper", "Piper (Neural)"), ("chatterbox", "Chatterbox (Voice Cloning)"),
+               ("qwen3", "Qwen3-TTS (GPU, Voice Cloning, Streaming)")])
     f("tts_rate", "Speech Rate", "Words per minute (200 = normal)",
       "tts", "int", min_val=80, max_val=400, step=10, suffix="WPM", nullable=True)
 
@@ -220,6 +222,32 @@ def _build_field_metadata() -> List[FieldMeta]:
     f("tts_chatterbox_audio_prompt", "Voice Clone Audio",
       "Path to audio file for voice cloning (leave empty to disable)",
       "chatterbox", "str", nullable=True)
+
+    # --- Qwen3-TTS ---
+    f("tts_qwen3_python", "Python Interpreter",
+      "Python of the separate environment with faster-qwen3-tts installed",
+      "qwen3", "str", nullable=True)
+    f("tts_qwen3_mode", "Mode",
+      "Clone a reference voice, or use a built-in expressive voice",
+      "qwen3", "choice", choices=[("clone", "Voice Clone"), ("expressive", "Built-in Voice")])
+    f("tts_qwen3_audio_prompt", "Voice Clone Audio",
+      "Reference recording, 5-15 s of one speaker (clone mode)",
+      "qwen3", "str", nullable=True)
+    f("tts_qwen3_speaker", "Built-in Voice",
+      "Voice name for expressive mode (e.g. ryan, vivian)",
+      "qwen3", "str", nullable=True)
+    f("tts_qwen3_size", "Model Size",
+      "0.6B fits next to the LLM on an 8 GB GPU",
+      "qwen3", "choice", choices=[("0.6B", "0.6B"), ("1.7B", "1.7B")])
+    f("tts_qwen3_language", "Language",
+      "Auto, or a language name such as French",
+      "qwen3", "str")
+    f("tts_qwen3_backend", "Backend",
+      "PyTorch with CUDA graphs, or the experimental GGML engine",
+      "qwen3", "choice", choices=[("torch", "PyTorch (CUDA graphs)"), ("ggml", "GGML (experimental)")])
+    f("tts_qwen3_output", "Audio Output",
+      "auto plays through PulseAudio directly under WSL",
+      "qwen3", "choice", choices=[("auto", "Auto"), ("pulse", "PulseAudio (pacat)"), ("portaudio", "PortAudio")])
 
     # --- Voice Input ---
     f("voice_device", "Input Device",
