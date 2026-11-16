@@ -31,7 +31,7 @@ import json
 import time
 import requests
 
-from .timing import timed
+from .timing import prefix_report, timed
 from ..debug import debug_log
 from . import http
 from .errors import is_timeout_error
@@ -112,6 +112,19 @@ class OpenAICompatibleBackend(LLMBackend):
     @property
     def base_url(self) -> str:
         return self._base_url
+
+    def _apply_template(self, messages: List[Dict[str, Any]], tools: Optional[list]) -> Optional[str]:
+        """llama-server only: the prompt text its chat template renders (diagnostics)."""
+        if not self._thinking_fields(False):          # loopback servers only
+            return None
+        root = self._base_url[:-3] if self._base_url.endswith("/v1") else self._base_url
+        body: Dict[str, Any] = {"messages": messages}
+        if tools:
+            body["tools"] = tools
+        with http.post(f"{root}/apply-template", json=body, headers=self._headers(), timeout=5) as resp:
+            if resp.status_code != 200:
+                return None
+            return resp.json().get("prompt")
 
     def _thinking_fields(self, thinking: bool) -> Dict[str, Any]:
         """Per-request reasoning switch for local llama.cpp / vLLM servers.
@@ -345,6 +358,8 @@ class OpenAICompatibleBackend(LLMBackend):
                     payload[key] = value
         if tools and isinstance(tools, list) and len(tools) > 0:
             payload["tools"] = tools
+        prefix_report(f"chat:{len(tools or [])>0}", tools, sanitised,
+                      render=lambda: self._apply_template(sanitised, payload.get("tools")))
 
         try:
             with http.post(

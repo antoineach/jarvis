@@ -1756,7 +1756,8 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
             guidance.append(
                 "Always reply in the language the user speaks"
                 + (f" (ISO 639-1 code '{_lang}')" if _lang else "")
-                + ", even though these instructions are in English."
+                + " — the whole reply, including any aside or remark — even though these "
+                "instructions are in English."
             )
 
         if transcript_context:

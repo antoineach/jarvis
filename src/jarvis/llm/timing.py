@@ -16,7 +16,7 @@ import functools
 import os
 import sys
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 _OWN_DIRS = (os.sep + "llm" + os.sep,)
 
@@ -42,9 +42,65 @@ def _usage(result: Any) -> str:
         u = result.get("usage") or {}
         p = u.get("prompt_tokens", result.get("prompt_eval_count"))
         c = u.get("completion_tokens", result.get("eval_count"))
+        t = result.get("timings") or {}           # llama-server: tokens reused from its prompt cache
+        cache = f", {t['cache_n']} cached" if isinstance(t, dict) and "cache_n" in t else ""
         if p is not None or c is not None:
-            return f"  ({p}→{c} tok)"
+            return f"  ({p}→{c} tok{cache})"
     return ""
+
+
+_last_prompt: dict = {}
+
+
+def prefix_report(key: str, tools: Any, messages: list, render: Optional[Callable] = None) -> None:
+    """Print where this prompt first differs from the previous one sent by the same caller.
+
+    The server can only reuse the identical leading part of a prompt from its cache; everything
+    after the first difference is recomputed. Message-level, so it names the culprit (which
+    message, what text) without needing the server's chat template.
+    """
+    if not enabled():
+        return
+    import json
+    rendered = None
+    if render is not None:                   # the exact text the server tokenizes (its chat template)
+        try:
+            rendered = render()
+        except Exception:
+            rendered = None
+    if isinstance(rendered, str) and rendered:
+        parts = [("rendered prompt", rendered)]
+        prev = _last_prompt.get(key)
+        _last_prompt[key] = parts
+        if prev is not None and prev[0][0] == "rendered prompt":
+            a, b = prev[0][1], rendered
+            k = next((j for j in range(min(len(a), len(b))) if a[j] != b[j]), min(len(a), len(b)))
+            snippet = b[max(0, k - 70):k + 70].replace("\n", " ")
+            print(f"  🧩 prompt cache: identical to previous call for the first {100 * k / max(len(b), 1):.0f}% "
+                  f"({k}/{len(b)} chars), then: …{snippet}…", flush=True)
+        return
+    parts = [("tools", json.dumps(tools or [], sort_keys=True, ensure_ascii=False))]
+    for i, m in enumerate(messages or []):
+        content = m.get("content") if isinstance(m, dict) else m
+        if not isinstance(content, str):
+            content = json.dumps(content, sort_keys=True, ensure_ascii=False, default=str)
+        parts.append((f"message {i} ({m.get('role', '?') if isinstance(m, dict) else '?'})", content))
+    prev = _last_prompt.get(key)
+    _last_prompt[key] = parts
+    if prev is None:
+        return
+    same = 0
+    for (label, a), (_, b) in zip(prev, parts):
+        if a == b:
+            same += len(a)
+            continue
+        k = next((j for j in range(min(len(a), len(b))) if a[j] != b[j]), min(len(a), len(b)))
+        total = sum(len(x) for _, x in parts)
+        snippet = b[max(0, k - 60):k + 60].replace("\n", " ")
+        print(f"  🧩 prompt cache: same as previous call up to {label}, char {k} "
+              f"(~{100 * (same + k) / max(total, 1):.0f}% of prompt): …{snippet}…", flush=True)
+        return
+
 
 
 def timed(kind: str) -> Callable:

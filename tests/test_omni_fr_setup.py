@@ -166,3 +166,27 @@ def test_model_folder_resolves_to_the_single_chat_gguf(tmp_path):
     with pytest.raises(SystemExit) as e:
         c.resolve_gguf(str(d), "chat model")
     assert "several" in str(e.value)
+
+
+def test_usage_shows_llama_server_cache_hits(monkeypatch, capsys):
+    monkeypatch.setenv("JARVIS_TIMINGS", "1")
+    timing.timed("chat")(lambda: {"usage": {"prompt_tokens": 6000, "completion_tokens": 30},
+                                  "timings": {"cache_n": 5200}})()
+    assert "6000→30 tok, 5200 cached" in capsys.readouterr().out
+
+
+def test_prefix_report_names_where_rendered_prompts_diverge(monkeypatch, capsys):
+    monkeypatch.setenv("JARVIS_TIMINGS", "1")
+    timing._last_prompt.clear()
+    timing.prefix_report("k", None, [], render=lambda: "SYSTEM persona [Context: 19:02] tools")
+    timing.prefix_report("k", None, [], render=lambda: "SYSTEM persona [Context: 19:03] tools")
+    out = capsys.readouterr().out
+    assert "prompt cache: identical" in out and "19:03" in out
+
+
+def test_prefix_report_falls_back_to_messages(monkeypatch, capsys):
+    monkeypatch.setenv("JARVIS_TIMINGS", "1")
+    timing._last_prompt.clear()
+    timing.prefix_report("m", [{"n": 1}], [{"role": "system", "content": "persona A"}])
+    timing.prefix_report("m", [{"n": 1}], [{"role": "system", "content": "persona B"}])
+    assert "message 0 (system), char 8" in capsys.readouterr().out

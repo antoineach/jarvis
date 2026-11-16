@@ -36,7 +36,11 @@ def main() -> None:
     cfg = load_settings()
     u = urlparse(cfg.llm_base_url)
     root = f"{u.scheme}://{u.hostname}:{u.port}"
-    dumps = sorted((Path.home() / ".local" / "share" / "jarvis" / "prompts").glob("turn-*-t01.json"))
+    first = {}                                     # first model call of each reply (t01, or t02 after a tool)
+    for d in sorted((Path.home() / ".local" / "share" / "jarvis" / "prompts").glob("turn-*.json")):
+        session = d.name.split("-")[2]
+        first.setdefault(session, d)
+    dumps = sorted(first.values())
     if len(dumps) < 2:
         sys.exit("need two prompt dumps: run Jarvis with JARVIS_DUMP_PROMPTS=1 and ask two questions")
     prompts = []

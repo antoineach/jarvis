@@ -898,6 +898,9 @@ def _run_daemon(smoke_test: bool = False) -> None:
 
     _install_signal_handlers()
 
+    from . import session_log
+    _log_file = None if smoke_test else session_log.start()
+
     from . import get_version
     version, release_channel = get_version()
     print(f"📦 Jarvis {version} ({release_channel})", flush=True)
@@ -912,6 +915,8 @@ def _run_daemon(smoke_test: bool = False) -> None:
 
     debug_log("daemon started", "jarvis")
     print("✓ Daemon started", flush=True)
+    if _log_file:
+        print(f"🗒️ Session log: {_log_file}", flush=True)
     print(f"🧠 Using chat model: {cfg.llm_chat_model}", flush=True)
     _stt = cfg.stt_model if cfg.whisper_backend == "parakeet" else f"whisper {cfg.whisper_model}"
     print(f"🎤 Using speech recognition: {_stt}", flush=True)
