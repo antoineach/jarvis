@@ -151,3 +151,18 @@ def test_preset_script_lists_ggufs_when_no_model_given(tmp_path):
                        env={"JARVIS_CONFIG_PATH": str(cfg), "PATH": "", "HOME": str(tmp_path)},
                        capture_output=True, text=True)
     assert r.returncode == 0 and "--llm-model" in r.stdout
+
+
+def test_model_folder_resolves_to_the_single_chat_gguf(tmp_path):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import configure_omni_fr as c
+    d = tmp_path / "modeles"
+    d.mkdir()
+    for n in ("gemma-4-E4B-it-Q4_K_M.gguf", "mmproj-F16.gguf", "embeddinggemma-300M-Q8_0.gguf"):
+        (d / n).write_bytes(b"x")
+    assert c.resolve_gguf(str(d), "chat model").endswith("gemma-4-E4B-it-Q4_K_M.gguf")
+    assert c.resolve_gguf(str(d), "embedding model").endswith("embeddinggemma-300M-Q8_0.gguf")
+    (d / "qwen3-4b-Q4_K_M.gguf").write_bytes(b"x")
+    with pytest.raises(SystemExit) as e:
+        c.resolve_gguf(str(d), "chat model")
+    assert "several" in str(e.value)

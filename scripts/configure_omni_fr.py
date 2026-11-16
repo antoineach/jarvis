@@ -39,8 +39,9 @@ FR_STOP = ["stop", "arrête", "arrête-toi", "tais-toi", "silence", "chut", "ça
 
 
 LLAMA_GLOBS = ["~/llama*/**/llama-server*", "~/Downloads/llama*/**/llama-server*", "C:/llama*/**/llama-server*",
+               "C:/modeles/**/llama-server*", "C:/models/**/llama-server*",
                "~/.omnifr/**/llama-server*", "~/Downloads/**/llama-server.exe"]
-GGUF_DIRS = ["~/models", "~/Downloads", "~/.omnifr", "~/.lmstudio/models", "C:/models",
+GGUF_DIRS = ["~/models", "~/Downloads", "~/.omnifr", "~/.lmstudio/models", "C:/models", "C:/modeles",
              "~/.local/share/jarvis/models", "~/.cache/huggingface/hub"]
 EMBED_REPOS = ["ggml-org/embeddinggemma-300M-GGUF", "nomic-ai/nomic-embed-text-v1.5-GGUF"]
 
@@ -65,6 +66,28 @@ def list_ggufs() -> list[str]:
     for d in GGUF_DIRS:
         out += glob.glob(os.path.join(os.path.expanduser(d), "**", "*.gguf"), recursive=True)
     return sorted(set(out))
+
+
+def _is_aux(f: str) -> bool:
+    name = Path(f).name.lower()
+    return "mmproj" in name or "embed" in name or ("-of-" in name and "-00001-of-" not in name)
+
+
+def resolve_gguf(path: str, kind: str) -> str:
+    """A .gguf file, or a folder holding exactly one candidate (vision projectors and later shards skipped)."""
+    p = Path(os.path.expanduser(path))
+    if p.is_file():
+        return str(p.resolve())
+    if not p.is_dir():
+        sys.exit(f"{kind} not found: {p}")
+    files = sorted(glob.glob(str(p / "**" / "*.gguf"), recursive=True))
+    cands = [f for f in files if (("embed" in Path(f).name.lower()) if kind == "embedding model" else not _is_aux(f))]
+    if len(cands) == 1:
+        print(f"  {kind}: {cands[0]}")
+        return str(Path(cands[0]).resolve())
+    if not cands:
+        sys.exit(f"no {kind} .gguf in {p}" + (f" (found: {', '.join(Path(f).name for f in files)})" if files else ""))
+    sys.exit(f"several {kind} candidates in {p}, pass the file itself:\n  " + "\n  ".join(cands))
 
 
 def download_embedding_model() -> str | None:
@@ -141,8 +164,7 @@ def preset(args, current: dict) -> dict:
     # llama.cpp started by Jarvis: chat server on 8080 (GPU), embedding server on 8081 (CPU).
     llm_model = args.llm_model or current.get("llama_server_model")
     if llm_model:
-        if not _exists(llm_model):
-            sys.exit(f"model not found: {llm_model}")
+        llm_model = resolve_gguf(llm_model, "chat model")
         exe = args.llama_server or current.get("llama_server_path") or find_llama_server()
         if not exe or not _exists(exe):
             sys.exit("llama-server not found: pass --llama-server <path to llama-server(.exe)>")
@@ -157,8 +179,7 @@ def preset(args, current: dict) -> dict:
         if not emb and args.download_embed:
             emb = download_embedding_model()
         if emb:
-            if not _exists(emb):
-                sys.exit(f"embedding model not found: {emb}")
+            emb = resolve_gguf(emb, "embedding model")
             p.update({"llama_server_embedding_model": str(Path(emb).expanduser().resolve()),
                       "embedding_provider": "openai_compatible",
                       "embedding_base_url": "http://127.0.0.1:8081/v1",
