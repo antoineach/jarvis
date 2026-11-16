@@ -64,6 +64,7 @@
   "whisper_backend": "auto",
   "whisper_device": "auto",
   "whisper_compute_type": "int8",
+  "whisper_language": null,
   "whisper_min_confidence": 0.3,
   "whisper_no_speech_threshold": 0.5,
   "whisper_min_audio_duration": 0.15,
@@ -120,13 +121,13 @@
   "timer_announcement": "{label}: time's up!",
   "brave_search_api_key": "",
   "wikipedia_fallback_enabled": true,
+  "background_tasks_enabled": false,
+  "document_search_enabled": false,
+  "document_search_paths": [],
   "dictation_enabled": true,
   "dictation_hotkey": "ctrl+alt",
   "dictation_filler_removal": false,
   "dictation_thinking_enabled": false,
   "dictation_custom_dictionary": [],
-  "mcps": {},
-  "background_tasks_enabled": false,
-  "document_search_enabled": false,
-  "document_search_paths": []
+  "mcps": {}
 }

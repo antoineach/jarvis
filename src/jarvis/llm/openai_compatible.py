@@ -30,6 +30,7 @@ import json
 import time
 import requests
 
+from .timing import timed
 from ..debug import debug_log
 from . import http
 from .errors import is_timeout_error
@@ -119,6 +120,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
     # ── chat ───────────────────────────────────────────────────────────
 
+    @timed("direct")
     def direct(
         self,
         chat_model: str,
@@ -184,6 +186,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
         return None
 
+    @timed("streaming")
     def streaming(
         self,
         chat_model: str,
@@ -287,6 +290,7 @@ class OpenAICompatibleBackend(LLMBackend):
             encoded_msg["tool_calls"] = encoded_calls
         return encoded_messages
 
+    @timed("chat")
     def chat(
         self,
         chat_model: str,
@@ -371,6 +375,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
     # ── embeddings & discovery ────────────────────────────────────────
 
+    @timed("embed")
     def embed(
         self,
         text: str,

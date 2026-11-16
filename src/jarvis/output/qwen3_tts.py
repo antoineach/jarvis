@@ -28,6 +28,7 @@ from typing import Optional
 import numpy as np
 
 from ..debug import debug_log
+from ..llm import timing as _llm_timing
 from .tts import SpeechRequest, _QueuedSpeech, _call_speech_callback, _estimate_tts_duration
 
 OUT_SR = 48000          # native rate of PulseAudio/WSLg and most devices: we resample ourselves
@@ -265,6 +266,8 @@ class Qwen3TTS(_QueuedSpeech):
                 break
             pending.append(c)
         debug_log(f"Qwen3-TTS first audio after {time.time() - t0:.2f}s, buffered {stats['gen'] / sr:.1f}s", "tts")
+        if _llm_timing.enabled():
+            print(f"  ⏱️ tts start     {time.time() - t0:5.2f}s  (buffered {stats['gen'] / sr:.1f}s)", flush=True)
 
         if request.duration_callback is not None:
             _call_speech_callback(request.duration_callback, (est_total,), "duration")

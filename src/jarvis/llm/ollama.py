@@ -13,6 +13,7 @@ import json
 import time
 import requests
 
+from .timing import timed
 from ..debug import debug_log
 from . import http
 from .errors import is_timeout_error
@@ -97,6 +98,7 @@ class OllamaBackend(LLMBackend):
 
     # ── chat ───────────────────────────────────────────────────────────
 
+    @timed("direct")
     def direct(
         self,
         chat_model: str,
@@ -175,6 +177,7 @@ class OllamaBackend(LLMBackend):
 
         return None
 
+    @timed("streaming")
     def streaming(
         self,
         chat_model: str,
@@ -243,6 +246,7 @@ class OllamaBackend(LLMBackend):
         except Exception:
             return None
 
+    @timed("chat")
     def chat(
         self,
         chat_model: str,
@@ -335,6 +339,7 @@ class OllamaBackend(LLMBackend):
 
     # ── embeddings & discovery ────────────────────────────────────────
 
+    @timed("embed")
     def embed(
         self,
         text: str,

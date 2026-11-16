@@ -23,6 +23,7 @@ from . import whisper_capabilities
 from .echo_detection import EchoDetector
 from .model_download import ModelDownloadError
 from .state_manager import StateManager, ListeningState
+from ..llm import timing as _llm_timing
 from ..utils.audio_lock import portaudio_lock
 from ..utils.audio_capture import mono_capture, open_input_stream, resolve_input_device
 from .wake_detection import is_wake_word_detected, is_stop_command, is_stop_command_echo
@@ -1088,10 +1089,12 @@ class VoiceListener(threading.Thread):
                     if not self._transcription_is_current(generation):
                         debug_log('Discarded voice dispatch after query-lock wait', 'voice')
                         return
+                    _turn_t0 = time.perf_counter()
                     reply = run_reply_engine(
                         self.db, self.cfg, None, query, self.dialogue_memory,
                         language=language, speech_context=speech_context,
                     )
+                    _llm_timing.stage("turn (text)", _turn_t0)
             except Exception as exc:
                 print(f"\n  ❌ Reply engine error: {exc}", flush=True)
                 debug_log(f'Reply engine exception: {exc}', 'voice')
@@ -1399,7 +1402,9 @@ class VoiceListener(threading.Thread):
                 continue
             decode_started = time.monotonic()
             try:
+                _stt_t0 = time.perf_counter()
                 text, language, low_confidence_events = self._transcribe_audio(job.audio)
+                _llm_timing.stage("whisper", _stt_t0)
             except Exception as exc:
                 debug_log(f"transcription worker error: {exc}", "voice")
                 text, language, low_confidence_events = "", None, ()
@@ -2580,7 +2585,7 @@ class VoiceListener(threading.Thread):
         """Consume lazy segments before releasing the shared model lock."""
         cpu_mode = self._whisper_device == "cpu"
         segments, info = self.model.transcribe(
-            audio, language=None, vad_filter=True,
+            audio, language=getattr(self.cfg, "whisper_language", None), vad_filter=True,
             no_speech_threshold=self.cfg.whisper_no_speech_threshold,
             condition_on_previous_text=False,
             without_timestamps=cpu_mode,
@@ -2601,7 +2606,7 @@ class VoiceListener(threading.Thread):
                     result = mlx_whisper.transcribe(
                         audio,
                         path_or_hf_repo=self._mlx_model_repo,
-                        language=None,
+                        language=getattr(self.cfg, "whisper_language", None),
                     )
 
                 # Capture Whisper's auto-detected language (ISO-639-1) so

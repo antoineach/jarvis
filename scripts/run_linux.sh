@@ -13,4 +13,5 @@ pip install -r requirements.txt
 export PYTHONPATH="$REPO_ROOT/src"
 # Allow override via JARVIS_CONFIG_PATH; otherwise use default search path in code
 export JARVIS_VOICE_DEBUG=${JARVIS_VOICE_DEBUG:-0}
+export JARVIS_TIMINGS=${JARVIS_TIMINGS:-1}  # per-stage latency lines; 0 to hide
 python -m jarvis.daemon

@@ -12,6 +12,8 @@ Set-Location $REPO_ROOT
 # Helper to set env vars for the current process
 $env:PYTHONPATH = Join-Path $REPO_ROOT 'src'
 if (-not $env:JARVIS_VOICE_DEBUG) { $env:JARVIS_VOICE_DEBUG = '0' }
+# Per-stage latency lines (whisper, each LLM call, TTS start, whole turn). Set to 0 to hide.
+if (-not $env:JARVIS_TIMINGS) { $env:JARVIS_TIMINGS = '1' }
 
 # Prefer micromamba for pre-built dependencies (webrtcvad, av, etc.)
 $micromamba = Get-Command micromamba -ErrorAction SilentlyContinue
