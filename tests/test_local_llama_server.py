@@ -101,3 +101,18 @@ def test_missing_model_is_reported(fake, capsys):
     exe, _ = fake
     local_server.ensure_local_servers(_cfg(exe, "/nope.gguf", _port()))
     assert "not found" in capsys.readouterr().out and local_server._started == []
+
+
+def test_embedding_server_gets_no_gpu(fake, monkeypatch):
+    exe, model = fake
+    seen = {}
+    real = local_server.subprocess.Popen
+
+    def spy(cmd, **kw):
+        seen[cmd[cmd.index("--port") + 1]] = (kw.get("env") or {}).get("CUDA_VISIBLE_DEVICES")
+        return real(cmd, **kw)
+    monkeypatch.setattr(local_server.subprocess, "Popen", spy)
+    p1, p2 = _port(), _port()
+    local_server.ensure_local_servers(_cfg(exe, model, p1, llama_server_embedding_model=str(model),
+                                           embedding_base_url=f"http://127.0.0.1:{p2}/v1"))
+    assert seen[str(p2)] == "-1" and seen[str(p1)] is None

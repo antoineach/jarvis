@@ -25,6 +25,7 @@ which backend is active.
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlparse
 
 import json
 import time
@@ -112,6 +113,20 @@ class OpenAICompatibleBackend(LLMBackend):
     def base_url(self) -> str:
         return self._base_url
 
+    def _thinking_fields(self, thinking: bool) -> Dict[str, Any]:
+        """Per-request reasoning switch for local llama.cpp / vLLM servers.
+
+        Reasoning models (Qwen3, Nemotron, Gemma 4 thinking...) think by default; without this the
+        ``thinking=False`` Jarvis asks for on every fast call (intent judge, memory extraction,
+        tool routing) is ignored and each call spends hundreds of hidden tokens. The field is a
+        chat-template variable understood by llama-server (``--jinja``) and vLLM; it is only sent
+        to loopback servers because hosted OpenAI-style APIs reject unknown parameters.
+        """
+        host = (urlparse(self._base_url).hostname or "").lower()
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            return {}
+        return {"chat_template_kwargs": {"enable_thinking": bool(thinking)}}
+
     def _headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
         if self._api_key:
@@ -146,6 +161,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "messages": messages,
             "stream": False,
         }
+        payload.update(self._thinking_fields(thinking))
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens is not None:
@@ -205,6 +221,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "messages": messages,
             "stream": True,
         }
+        payload.update(self._thinking_fields(thinking))
 
         deadline = time.monotonic() + timeout_sec
         try:
@@ -307,6 +324,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "messages": sanitised,
             "stream": False,
         }
+        payload.update(self._thinking_fields(thinking))
         if extra_options and isinstance(extra_options, dict):
             # ``temperature``, ``max_tokens``, ``top_p`` etc. live at the
             # payload root in the OpenAI shape, not under an ``options``

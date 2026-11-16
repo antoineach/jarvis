@@ -64,7 +64,7 @@ def _tail(path: Path, n: int = 12) -> str:
         return ""
 
 
-def _start(name: str, exe: str, model: str, base_url: str, args: List[str]) -> bool:
+def _start(name: str, exe: str, model: str, base_url: str, args: List[str], cpu_only: bool = False) -> bool:
     u = urlparse(base_url)
     if u.hostname not in _LOCAL_HOSTS:
         debug_log(f"{name}: {base_url} is not local, not starting a server", "llm")
@@ -82,7 +82,12 @@ def _start(name: str, exe: str, model: str, base_url: str, args: List[str]) -> b
     print(f"  🚀 Starting llama-server for {name} ({Path(model).name}, port {u.port})...", flush=True)
     debug_log(f"{name}: {' '.join(cmd)}", "llm")
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
-    proc = subprocess.Popen(cmd, stdout=open(log, "w"), stderr=subprocess.STDOUT, creationflags=flags)
+    env = None
+    if cpu_only:
+        # -ngl 0 alone still creates a CUDA context and compute buffers (several hundred MB of VRAM
+        # on a CUDA build): hide the GPU entirely so the chat model and the voice keep it.
+        env = {**os.environ, "CUDA_VISIBLE_DEVICES": "-1"}
+    proc = subprocess.Popen(cmd, stdout=open(log, "w"), stderr=subprocess.STDOUT, creationflags=flags, env=env)
     _started.append(proc)
     t0 = time.time()
     while time.time() - t0 < READY_TIMEOUT_S:
@@ -122,4 +127,4 @@ def ensure_local_servers(cfg) -> None:
     emb = str(getattr(cfg, "llama_server_embedding_model", "") or "").strip()
     emb_url = str(getattr(cfg, "embedding_base_url", "") or "").strip()
     if emb and emb_url and _root(emb_url) != _root(cfg.llm_base_url):
-        _start("embeddings", exe, os.path.expanduser(emb), emb_url, EMBED_ARGS)
+        _start("embeddings", exe, os.path.expanduser(emb), emb_url, EMBED_ARGS, cpu_only=True)
