@@ -127,6 +127,9 @@ def preset(args, current: dict) -> dict:
         "tts_engine": "qwen3",
         "tts_qwen3_language": "French",
         "tts_qwen3_size": "0.6B",
+        # 4 codec steps = 333 ms chunks: first audio and the speed estimate arrive ~0.3 s sooner on a
+        # GPU that generates barely faster than real time. Back to 8 if playback gets choppy.
+        "tts_qwen3_chunk": 4,
         # The planner stays on: with a small model it is what makes the reply call tools instead
         # of inventing an answer (measured: weather made up with it off), and it skips the memory
         # search when not needed. The LLM tool router costs a call; with only the built-in tools,
@@ -139,6 +142,9 @@ def preset(args, current: dict) -> dict:
         "stop_commands": FR_STOP,
         "wake_aliases": sorted(set(current.get("wake_aliases", [])) | set(FR_WAKE_ALIASES)),
         "location_auto_detect": True,
+        # End of speech after 600 ms of silence instead of 800: answers 0.2 s sooner, at the cost of
+        # cutting a long mid-sentence pause.
+        "endpoint_silence_ms": 600,
         # Short-term memory only: the conversation of the session, nothing filed or recalled
         # across sessions (a 4B model mis-files facts and recalls its own wrong answers).
         "memory_write": "off",

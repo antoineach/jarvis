@@ -162,6 +162,7 @@ class Settings:
     tts_qwen3_language: str  # "Auto" or a language name such as "French"
     tts_qwen3_backend: str  # "torch" (CUDA graphs) or "ggml" (experimental)
     tts_qwen3_output: str  # "auto" (pacat under WSL), "pulse" or "portaudio"
+    tts_qwen3_chunk: int  # codec steps per streamed chunk (12 Hz: 8 = 667 ms)
 
     # Piper TTS
     tts_piper_model_path: str | None  # Path to .onnx voice model
@@ -557,7 +558,7 @@ def get_default_config() -> Dict[str, Any]:
         # Empty = Jarvis expects the server to be running already.
         "llama_server_path": None,
         "llama_server_model": None,
-        "llama_server_args": ["-ngl", "99", "-c", "16384", "-np", "2", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"],  # 2 slots: replies / fast calls
+        "llama_server_args": ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"],  # 3 slots: replies / intent judge / other fast calls
         "llama_server_embedding_model": None,
         "embedding_api_key": "",
         "embedding_model": "",  # falls back to ollama_embed_model when empty
@@ -591,7 +592,8 @@ def get_default_config() -> Dict[str, Any]:
         "tts_qwen3_size": "0.6B",
         "tts_qwen3_language": "Auto",
         "tts_qwen3_backend": "torch",
-        "tts_qwen3_output": "auto",  # CFG weight for quality/speed trade-off
+        "tts_qwen3_output": "auto",  # "auto" (pacat under WSL), "pulse" or "portaudio"
+        "tts_qwen3_chunk": 8,  # codec steps per chunk: smaller = earlier first audio, more overhead
 
         # Piper TTS
         "tts_piper_model_path": None,  # Path to .onnx voice model
@@ -834,6 +836,7 @@ def load_settings() -> Settings:
     tts_qwen3_output = str(merged.get("tts_qwen3_output", "auto")).lower()
     if tts_qwen3_output not in ("auto", "pulse", "portaudio"):
         tts_qwen3_output = "auto"
+    tts_qwen3_chunk = min(24, max(2, int(merged.get("tts_qwen3_chunk", 8) or 8)))
 
     # Piper TTS settings
     tts_piper_model_path = _expand_path(merged.get("tts_piper_model_path"))
@@ -980,7 +983,7 @@ def load_settings() -> Settings:
         embedding_base_url=embedding_base_url,
         llama_server_path=(str(merged.get("llama_server_path") or "").strip() or None),
         llama_server_model=(str(merged.get("llama_server_model") or "").strip() or None),
-        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "16384", "-np", "2", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"])],
+        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"])],
         llama_server_embedding_model=(str(merged.get("llama_server_embedding_model") or "").strip() or None),
         embedding_api_key=embedding_api_key,
         embedding_model=embedding_model,
@@ -1013,6 +1016,7 @@ def load_settings() -> Settings:
         tts_qwen3_language=tts_qwen3_language,
         tts_qwen3_backend=tts_qwen3_backend,
         tts_qwen3_output=tts_qwen3_output,
+        tts_qwen3_chunk=tts_qwen3_chunk,
 
         # Piper TTS
         tts_piper_model_path=tts_piper_model_path,

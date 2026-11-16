@@ -1082,7 +1082,8 @@ def _run_daemon(smoke_test: bool = False) -> None:
         qwen3={"python": cfg.tts_qwen3_python, "mode": cfg.tts_qwen3_mode,
                "audio_prompt_path": cfg.tts_qwen3_audio_prompt, "speaker": cfg.tts_qwen3_speaker,
                "size": cfg.tts_qwen3_size, "language": cfg.tts_qwen3_language,
-               "backend": cfg.tts_qwen3_backend, "output": cfg.tts_qwen3_output},
+               "backend": cfg.tts_qwen3_backend, "output": cfg.tts_qwen3_output,
+               "chunk": cfg.tts_qwen3_chunk},
     )
     _global_tts_engine = tts  # Expose for face widget speaking animation
     from .tools.builtin.timer import set_ring_handler

@@ -123,13 +123,16 @@ def test_two_slot_server_pins_replies_and_fast_calls(fake, monkeypatch):
     exe, model = fake
     monkeypatch.setattr(local_server, "_pinning", False)
     local_server.ensure_local_servers(_cfg(exe, model, _port(), llama_server_args=["-np", "2"]))
-    assert local_server.slot_for(True) == 0 and local_server.slot_for(False) == 1
+    assert [local_server.slot_for(k) for k in ("reply", "chat", "direct")] == [0, 1, 1]
+    local_server.stop_started_servers()
+    local_server.ensure_local_servers(_cfg(exe, model, _port(), llama_server_args=["-np", "3"]))
+    assert [local_server.slot_for(k) for k in ("reply", "chat", "direct")] == [0, 1, 2]
     from jarvis.llm.openai_compatible import OpenAICompatibleBackend
-    assert OpenAICompatibleBackend("http://127.0.0.1:8088/v1")._slot_fields(True) == {"id_slot": 0}
-    assert OpenAICompatibleBackend("https://api.example.com/v1")._slot_fields(True) == {}
+    assert OpenAICompatibleBackend("http://127.0.0.1:8088/v1")._slot_fields("reply") == {"id_slot": 0}
+    assert OpenAICompatibleBackend("https://api.example.com/v1")._slot_fields("reply") == {}
 
 
 def test_no_pinning_for_single_slot_or_external_server(monkeypatch):
     monkeypatch.setattr(local_server, "_pinning", False)
-    assert local_server.slot_for(True) is None
+    assert local_server.slot_for("reply") is None
     assert local_server._parallel(["-c", "8192"]) == 1 and local_server._parallel(["-np", "2"]) == 2

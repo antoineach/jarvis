@@ -111,12 +111,13 @@ class Qwen3TTS(_QueuedSpeech):
     def __init__(self, enabled: bool = True, rate: Optional[int] = None, python: Optional[str] = None,
                  mode: str = "clone", audio_prompt_path: Optional[str] = None, speaker: Optional[str] = None,
                  size: str = "0.6B", language: str = "Auto", instruct: str = "", backend: str = "torch",
-                 output: str = "auto", output_latency: float = 0.25) -> None:
+                 output: str = "auto", output_latency: float = 0.25, chunk: int = 8) -> None:
         self.enabled, self.rate = enabled, rate
         self.python = python
         self.mode, self.audio_prompt_path, self.speaker = mode, audio_prompt_path, speaker
         self.size, self.language, self.instruct, self.backend = size, language, instruct, backend
         self.output, self.output_latency = output, output_latency
+        self.chunk = int(chunk)
         super().__init__()
         self._proc: Optional[subprocess.Popen] = None
         self._port = 0
@@ -143,7 +144,7 @@ class Qwen3TTS(_QueuedSpeech):
             return False
         self._port = _free_port()
         cmd = [py, str(SERVER_SCRIPT), "--port", str(self._port), "--mode", self.mode, "--size", self.size,
-               "--language", self.language, "--backend", self.backend]
+               "--language", self.language, "--backend", self.backend, "--chunk", str(self.chunk)]
         if self.mode == "clone":
             cmd += ["--voice", str(self.audio_prompt_path)]
         if self.speaker:
@@ -253,7 +254,9 @@ class Qwen3TTS(_QueuedSpeech):
         while not stats["done"] and not self._should_interrupt.is_set():
             el = time.time() - stats["t_first"]
             gen_s = stats["gen"] / sr
-            if el >= 0.8:
+            # Speed is measured over 1.2 chunks (0.5 s minimum): 0.8 s with the default 667 ms
+            # chunks, as before; smaller chunks give a valid estimate, and playback, sooner.
+            if el >= max(0.5, 1.2 * self.chunk / 12.0):
                 speed = 0.8 * (gen_s - first_s) / el          # pessimistic: generation slows down later
                 need = 0.5 if speed >= 1.4 else max(0.8, (est_total - gen_s) * (1 - speed) / max(speed, 0.3) + 0.6)
                 if gen_s >= need:

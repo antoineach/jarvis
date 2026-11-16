@@ -28,13 +28,14 @@ from urllib.parse import urlparse
 
 from ..debug import debug_log
 
-# Two slots sharing one 16k KV cache (q8_0 keeps it the size of an 8k f16 cache): slot 0 keeps the
-# reply prompt (~6k tokens) between turns, slot 1 takes the short calls (intent judge, planner,
-# digests). With llama-server's default (4 slots, 8k shared) every short call evicted the reply
+# Three slots sharing one unified 16k KV cache (q8_0 keeps it the size of an 8k f16 cache; a turn
+# uses ~10k: reply ~6.5k, judge ~1.3k, planner ~2k): slot 0 keeps the reply prompt between turns,
+# slot 1 the intent judge, slot 2 the other short calls (planner, digests), so none evicts another. With llama-server's default (4 slots, 8k shared) every short call evicted the reply
 # prompt: measured 0 cached tokens on every reply, ~3 s of re-reading per turn.
-DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "2", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"]
-REPLY_SLOT, FAST_SLOT = 0, 1
+DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"]
+REPLY_SLOT, JUDGE_SLOT, FAST_SLOT = 0, 1, 2
 _pinning = False
+_slots = 1
 EMBED_ARGS = ["--embeddings", "-ngl", "0", "-c", "2048", "-b", "2048", "-ub", "2048"]
 READY_TIMEOUT_S = 300.0
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -119,15 +120,20 @@ def _parallel(args: List[str]) -> int:
     return 1
 
 
-def slot_for(has_tools: bool) -> Optional[int]:
+def slot_for(kind: str) -> Optional[int]:
     """llama-server slot for a request, when Jarvis started the server with >= 2 slots.
 
-    Replies (the only calls carrying tool schemas) always land in the same slot so their long,
-    stable prompt prefix stays cached; everything else shares the other slot.
+    ``kind``: "reply" (chat with tool schemas: only the reply loop sends them), "chat" (chat
+    without tools: the intent judge) or "direct" (planner, digests, extraction, summaries).
+    Each kind keeps its own stable prompt prefix cached. With 2 slots the short calls share one.
     """
     if not _pinning:
         return None
-    return REPLY_SLOT if has_tools else FAST_SLOT
+    if kind == "reply":
+        return REPLY_SLOT
+    if _slots >= 3:
+        return JUDGE_SLOT if kind == "chat" else FAST_SLOT
+    return JUDGE_SLOT
 
 
 def stop_started_servers() -> None:
@@ -149,10 +155,10 @@ def ensure_local_servers(cfg) -> None:
         return
     exe, model = os.path.expanduser(exe), os.path.expanduser(model)
     atexit.register(stop_started_servers)
-    global _pinning
+    global _pinning, _slots
     args = list(getattr(cfg, "llama_server_args", None) or DEFAULT_ARGS)
     if _start("chat", exe, model, cfg.llm_base_url, args) and _parallel(args) >= 2:
-        _pinning = True
+        _pinning, _slots = True, _parallel(args)
     emb = str(getattr(cfg, "llama_server_embedding_model", "") or "").strip()
     emb_url = str(getattr(cfg, "embedding_base_url", "") or "").strip()
     if emb and emb_url and _root(emb_url) != _root(cfg.llm_base_url):

@@ -113,10 +113,10 @@ class OpenAICompatibleBackend(LLMBackend):
     def base_url(self) -> str:
         return self._base_url
 
-    def _slot_fields(self, has_tools: bool) -> Dict[str, Any]:
+    def _slot_fields(self, kind: str) -> Dict[str, Any]:
         """Pin the request to a llama-server slot when Jarvis manages a multi-slot server."""
         from .local_server import slot_for
-        slot = slot_for(has_tools) if self._thinking_fields(False) else None
+        slot = slot_for(kind) if self._thinking_fields(False) else None
         return {} if slot is None else {"id_slot": slot}
 
     def _apply_template(self, messages: List[Dict[str, Any]], tools: Optional[list],
@@ -184,7 +184,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": False,
         }
         payload.update(self._thinking_fields(thinking))
-        payload.update(self._slot_fields(False))
+        payload.update(self._slot_fields("direct"))
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens is not None:
@@ -245,7 +245,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": True,
         }
         payload.update(self._thinking_fields(thinking))
-        payload.update(self._slot_fields(False))
+        payload.update(self._slot_fields("direct"))
 
         deadline = time.monotonic() + timeout_sec
         try:
@@ -349,7 +349,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": False,
         }
         payload.update(self._thinking_fields(thinking))
-        payload.update(self._slot_fields(False))
+        payload.update(self._slot_fields("chat"))
         if extra_options and isinstance(extra_options, dict):
             # ``temperature``, ``max_tokens``, ``top_p`` etc. live at the
             # payload root in the OpenAI shape, not under an ``options``
@@ -370,7 +370,7 @@ class OpenAICompatibleBackend(LLMBackend):
                     payload[key] = value
         if tools and isinstance(tools, list) and len(tools) > 0:
             payload["tools"] = tools
-            payload.update(self._slot_fields(True))
+            payload.update(self._slot_fields("reply"))
         prefix_report(f"chat:{bool(payload.get('tools'))}", tools, sanitised,
                       render=lambda: self._apply_template(sanitised, payload.get("tools"),
                                                           payload.get("chat_template_kwargs")))

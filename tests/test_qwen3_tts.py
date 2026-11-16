@@ -105,3 +105,14 @@ def test_config_keeps_qwen3_engine(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_CONFIG_PATH", str(cfg_file))
     s = load_settings()
     assert s.tts_engine == "qwen3" and s.tts_qwen3_language == "French"
+
+
+def test_chunk_size_is_configurable(tmp_path, monkeypatch):
+    import json
+
+    from jarvis.config import load_settings
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(json.dumps({"tts_engine": "qwen3", "tts_qwen3_chunk": 4}))
+    monkeypatch.setenv("JARVIS_CONFIG_PATH", str(cfg_file))
+    assert load_settings().tts_qwen3_chunk == 4
+    assert create_tts_engine(engine="qwen3", qwen3={"python": "/x", "chunk": 4}).chunk == 4
