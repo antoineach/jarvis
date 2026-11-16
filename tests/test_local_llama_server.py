@@ -116,3 +116,20 @@ def test_embedding_server_gets_no_gpu(fake, monkeypatch):
     local_server.ensure_local_servers(_cfg(exe, model, p1, llama_server_embedding_model=str(model),
                                            embedding_base_url=f"http://127.0.0.1:{p2}/v1"))
     assert seen[str(p2)] == "-1" and seen[str(p1)] is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="shebang fake executable")
+def test_two_slot_server_pins_replies_and_fast_calls(fake, monkeypatch):
+    exe, model = fake
+    monkeypatch.setattr(local_server, "_pinning", False)
+    local_server.ensure_local_servers(_cfg(exe, model, _port(), llama_server_args=["-np", "2"]))
+    assert local_server.slot_for(True) == 0 and local_server.slot_for(False) == 1
+    from jarvis.llm.openai_compatible import OpenAICompatibleBackend
+    assert OpenAICompatibleBackend("http://127.0.0.1:8088/v1")._slot_fields(True) == {"id_slot": 0}
+    assert OpenAICompatibleBackend("https://api.example.com/v1")._slot_fields(True) == {}
+
+
+def test_no_pinning_for_single_slot_or_external_server(monkeypatch):
+    monkeypatch.setattr(local_server, "_pinning", False)
+    assert local_server.slot_for(True) is None
+    assert local_server._parallel(["-c", "8192"]) == 1 and local_server._parallel(["-np", "2"]) == 2

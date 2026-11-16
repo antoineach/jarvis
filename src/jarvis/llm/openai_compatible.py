@@ -113,7 +113,14 @@ class OpenAICompatibleBackend(LLMBackend):
     def base_url(self) -> str:
         return self._base_url
 
-    def _apply_template(self, messages: List[Dict[str, Any]], tools: Optional[list]) -> Optional[str]:
+    def _slot_fields(self, has_tools: bool) -> Dict[str, Any]:
+        """Pin the request to a llama-server slot when Jarvis manages a multi-slot server."""
+        from .local_server import slot_for
+        slot = slot_for(has_tools) if self._thinking_fields(False) else None
+        return {} if slot is None else {"id_slot": slot}
+
+    def _apply_template(self, messages: List[Dict[str, Any]], tools: Optional[list],
+                        template_kwargs: Optional[dict] = None) -> Optional[str]:
         """llama-server only: the prompt text its chat template renders (diagnostics)."""
         if not self._thinking_fields(False):          # loopback servers only
             return None
@@ -121,6 +128,8 @@ class OpenAICompatibleBackend(LLMBackend):
         body: Dict[str, Any] = {"messages": messages}
         if tools:
             body["tools"] = tools
+        if template_kwargs:
+            body["chat_template_kwargs"] = template_kwargs
         with http.post(f"{root}/apply-template", json=body, headers=self._headers(), timeout=5) as resp:
             if resp.status_code != 200:
                 return None
@@ -175,6 +184,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": False,
         }
         payload.update(self._thinking_fields(thinking))
+        payload.update(self._slot_fields(False))
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens is not None:
@@ -235,6 +245,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": True,
         }
         payload.update(self._thinking_fields(thinking))
+        payload.update(self._slot_fields(False))
 
         deadline = time.monotonic() + timeout_sec
         try:
@@ -338,6 +349,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": False,
         }
         payload.update(self._thinking_fields(thinking))
+        payload.update(self._slot_fields(False))
         if extra_options and isinstance(extra_options, dict):
             # ``temperature``, ``max_tokens``, ``top_p`` etc. live at the
             # payload root in the OpenAI shape, not under an ``options``
@@ -358,8 +370,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     payload[key] = value
         if tools and isinstance(tools, list) and len(tools) > 0:
             payload["tools"] = tools
-        prefix_report(f"chat:{len(tools or [])>0}", tools, sanitised,
-                      render=lambda: self._apply_template(sanitised, payload.get("tools")))
+            payload.update(self._slot_fields(True))
+        prefix_report(f"chat:{bool(payload.get('tools'))}", tools, sanitised,
+                      render=lambda: self._apply_template(sanitised, payload.get("tools"),
+                                                          payload.get("chat_template_kwargs")))
 
         try:
             with http.post(
