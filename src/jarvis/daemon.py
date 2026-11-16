@@ -913,7 +913,13 @@ def _run_daemon(smoke_test: bool = False) -> None:
     debug_log("daemon started", "jarvis")
     print("✓ Daemon started", flush=True)
     print(f"🧠 Using chat model: {cfg.llm_chat_model}", flush=True)
-    print(f"🎤 Using whisper model: {cfg.whisper_model}", flush=True)
+    _stt = cfg.stt_model if cfg.whisper_backend == "parakeet" else f"whisper {cfg.whisper_model}"
+    print(f"🎤 Using speech recognition: {_stt}", flush=True)
+
+    # Start llama.cpp servers configured to run with Jarvis (no-op otherwise)
+    if not smoke_test:
+        from .llm.local_server import ensure_local_servers
+        ensure_local_servers(cfg)
 
     # MCP preflight: discover and cache external MCP tools
     mcps = getattr(cfg, "mcps", {}) or {}

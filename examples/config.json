@@ -7,6 +7,16 @@
   "llm_chat_model": "",
   "embedding_provider": "",
   "embedding_base_url": "",
+  "llama_server_path": null,
+  "llama_server_model": null,
+  "llama_server_args": [
+    "-ngl",
+    "99",
+    "-c",
+    "8192",
+    "--jinja"
+  ],
+  "llama_server_embedding_model": null,
   "embedding_api_key": "",
   "embedding_model": "",
   "ollama_base_url": "http://127.0.0.1:11434",

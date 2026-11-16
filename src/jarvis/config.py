@@ -117,6 +117,10 @@ class Settings:
     llm_thinking_enabled: bool
     embedding_provider: str  # "" (= same as llm_provider) | "ollama" | "openai_compatible"
     embedding_base_url: str
+    llama_server_path: Optional[str]  # llama-server executable started with Jarvis (see llm/local_server.py)
+    llama_server_model: Optional[str]  # chat GGUF
+    llama_server_args: list
+    llama_server_embedding_model: Optional[str]  # embedding GGUF, served on embedding_base_url
     embedding_api_key: str
     embedding_model: str
     # Disk-format aliases. Older config files name these fields, so they
@@ -548,6 +552,12 @@ def get_default_config() -> Dict[str, Any]:
         "llm_chat_model": "",  # falls back to ollama_chat_model when empty
         "embedding_provider": "",  # "" = same as llm_provider
         "embedding_base_url": "",
+        # Start llama.cpp with Jarvis (llm_provider "openai_compatible", loopback llm_base_url).
+        # Empty = Jarvis expects the server to be running already.
+        "llama_server_path": None,
+        "llama_server_model": None,
+        "llama_server_args": ["-ngl", "99", "-c", "8192", "--jinja"],
+        "llama_server_embedding_model": None,
         "embedding_api_key": "",
         "embedding_model": "",  # falls back to ollama_embed_model when empty
         "ollama_base_url": "http://127.0.0.1:11434",
@@ -963,6 +973,10 @@ def load_settings() -> Settings:
         llm_thinking_enabled=bool(merged["llm_thinking_enabled"]),
         embedding_provider=embedding_provider,
         embedding_base_url=embedding_base_url,
+        llama_server_path=(str(merged.get("llama_server_path") or "").strip() or None),
+        llama_server_model=(str(merged.get("llama_server_model") or "").strip() or None),
+        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "8192", "--jinja"])],
+        llama_server_embedding_model=(str(merged.get("llama_server_embedding_model") or "").strip() or None),
         embedding_api_key=embedding_api_key,
         embedding_model=embedding_model,
         ollama_base_url=ollama_base_url,

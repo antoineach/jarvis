@@ -123,3 +123,31 @@ def test_listener_routes_transcription_to_parakeet():
                                cfg=types.SimpleNamespace(whisper_language="fr"))
     text, lang, events = VoiceListener._transcribe_audio(me, np.zeros(16000, np.float32))
     assert (text, lang, events) == ("Quelle heure est-il ?", "fr", ())
+
+
+@pytest.mark.usefixtures("no_network")
+def test_preset_script_configures_llama_server(tmp_path):
+    cfg = tmp_path / "config.json"
+    cfg.write_text(json.dumps({"ollama_base_url": "http://127.0.0.1:11434"}))
+    exe, chat, emb = tmp_path / "llama-server.exe", tmp_path / "gemma-4-E4B-Q4_K_M.gguf", tmp_path / "embed.gguf"
+    for f in (exe, chat, emb):
+        f.write_bytes(b"x")
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "configure_omni_fr.py"), "--speaker", "vivian",
+                        "--llm-model", str(chat), "--llama-server", str(exe), "--embed-model", str(emb)],
+                       env={"JARVIS_CONFIG_PATH": str(cfg), "PATH": ""}, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr + r.stdout
+    out = json.loads(cfg.read_text())
+    assert out["llama_server_model"] == str(chat.resolve()) and out["llama_server_path"] == str(exe.resolve())
+    assert out["llm_provider"] == "openai_compatible" and out["llm_base_url"] == "http://127.0.0.1:8080/v1"
+    assert out["llm_chat_model"] == "gemma-4-E4B-Q4_K_M"
+    assert out["embedding_base_url"] == "http://127.0.0.1:8081/v1"
+    assert out["llama_server_embedding_model"] == str(emb.resolve())
+
+
+@pytest.mark.usefixtures("no_network")
+def test_preset_script_lists_ggufs_when_no_model_given(tmp_path):
+    cfg = tmp_path / "config.json"
+    r = subprocess.run([sys.executable, str(ROOT / "scripts" / "configure_omni_fr.py"), "--dry-run"],
+                       env={"JARVIS_CONFIG_PATH": str(cfg), "PATH": "", "HOME": str(tmp_path)},
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and "--llm-model" in r.stdout

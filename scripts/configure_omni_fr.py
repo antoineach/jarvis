@@ -14,8 +14,10 @@ Only clone a voice you have the owner's consent for.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -34,6 +36,55 @@ TTS_PYTHON_CANDIDATES = [
 # French mis-transcriptions of "Jarvis" seen with Whisper set to French.
 FR_WAKE_ALIASES = ["djarvis", "jarvisse", "jarvice", "charvis", "jar vis", "jarvi"]
 FR_STOP = ["stop", "arrête", "arrête-toi", "tais-toi", "silence", "chut", "ça suffit"]
+
+
+LLAMA_GLOBS = ["~/llama*/**/llama-server*", "~/Downloads/llama*/**/llama-server*", "C:/llama*/**/llama-server*",
+               "~/.omnifr/**/llama-server*", "~/Downloads/**/llama-server.exe"]
+GGUF_DIRS = ["~/models", "~/Downloads", "~/.omnifr", "~/.lmstudio/models", "C:/models",
+             "~/.local/share/jarvis/models", "~/.cache/huggingface/hub"]
+EMBED_REPOS = ["ggml-org/embeddinggemma-300M-GGUF", "nomic-ai/nomic-embed-text-v1.5-GGUF"]
+
+
+def _exists(p: str) -> bool:
+    return Path(os.path.expanduser(p)).is_file()
+
+
+def find_llama_server() -> str | None:
+    hit = shutil.which("llama-server")
+    if hit:
+        return hit
+    for g in LLAMA_GLOBS:
+        for f in sorted(glob.glob(os.path.expanduser(g), recursive=True)):
+            if Path(f).is_file() and Path(f).suffix.lower() in ("", ".exe"):
+                return f
+    return None
+
+
+def list_ggufs() -> list[str]:
+    out = []
+    for d in GGUF_DIRS:
+        out += glob.glob(os.path.join(os.path.expanduser(d), "**", "*.gguf"), recursive=True)
+    return sorted(set(out))
+
+
+def download_embedding_model() -> str | None:
+    """Small multilingual embedding GGUF (Q8_0), first repo that can be downloaded."""
+    try:
+        from huggingface_hub import hf_hub_download, list_repo_files
+    except ImportError:
+        print("  ! huggingface_hub missing: pip install huggingface_hub")
+        return None
+    dest = Path.home() / ".local" / "share" / "jarvis" / "models"
+    for repo in EMBED_REPOS:
+        try:
+            files = [f for f in list_repo_files(repo) if f.endswith(".gguf")]
+            pick = next((f for f in files if "q8_0" in f.lower()), files[0] if files else None)
+            if pick:
+                print(f"  downloading {repo}/{pick} ...")
+                return hf_hub_download(repo, pick, local_dir=str(dest))
+        except Exception as e:                       # gated repo, network, ...
+            print(f"  ! {repo}: {type(e).__name__}: {str(e)[:120]}")
+    return None
 
 
 def find_tts_python() -> str | None:
@@ -86,6 +137,32 @@ def preset(args, current: dict) -> dict:
         p.update({"tts_qwen3_mode": "expressive", "tts_qwen3_speaker": "vivian"})
     if args.llm_url:
         p.update({"llm_provider": "openai_compatible", "llm_base_url": args.llm_url})
+
+    # llama.cpp started by Jarvis: chat server on 8080 (GPU), embedding server on 8081 (CPU).
+    llm_model = args.llm_model or current.get("llama_server_model")
+    if llm_model:
+        if not _exists(llm_model):
+            sys.exit(f"model not found: {llm_model}")
+        exe = args.llama_server or current.get("llama_server_path") or find_llama_server()
+        if not exe or not _exists(exe):
+            sys.exit("llama-server not found: pass --llama-server <path to llama-server(.exe)>")
+        llm_url = args.llm_url or current.get("llm_base_url") or "http://127.0.0.1:8080/v1"
+        if "11434" in llm_url:                       # an Ollama URL left over from the defaults
+            llm_url = "http://127.0.0.1:8080/v1"
+        p.update({"llama_server_path": str(Path(exe).resolve()),
+                  "llama_server_model": str(Path(llm_model).expanduser().resolve()),
+                  "llm_provider": "openai_compatible", "llm_base_url": llm_url,
+                  "llm_chat_model": Path(llm_model).stem, "fast_model": ""})
+        emb = args.embed_model or current.get("llama_server_embedding_model")
+        if not emb and args.download_embed:
+            emb = download_embedding_model()
+        if emb:
+            if not _exists(emb):
+                sys.exit(f"embedding model not found: {emb}")
+            p.update({"llama_server_embedding_model": str(Path(emb).expanduser().resolve()),
+                      "embedding_provider": "openai_compatible",
+                      "embedding_base_url": "http://127.0.0.1:8081/v1",
+                      "embedding_model": Path(emb).stem})
     return p
 
 
@@ -95,6 +172,11 @@ def main() -> None:
     ap.add_argument("--speaker", help="built-in Qwen3 voice instead of cloning (e.g. vivian, serena, ryan)")
     ap.add_argument("--tts-python", help="python of the Qwen3-TTS environment (auto-detected)")
     ap.add_argument("--llm-url", help="OpenAI-compatible server, e.g. http://127.0.0.1:8080/v1 (llama-server)")
+    ap.add_argument("--llm-model", help="chat model .gguf: Jarvis then starts llama-server itself")
+    ap.add_argument("--llama-server", help="path to llama-server(.exe) (auto-detected)")
+    ap.add_argument("--embed-model", help="embedding model .gguf (memory search), served on port 8081")
+    ap.add_argument("--download-embed", action="store_true",
+                    help="download a small multilingual embedding model (EmbeddingGemma 300M Q8_0)")
     ap.add_argument("--stt", choices=["parakeet", "canary", "whisper"], default="parakeet",
                     help="speech recognition: parakeet (default), canary (1B), whisper")
     ap.add_argument("--stt-device", choices=["cpu", "auto"], default="cpu",
@@ -115,8 +197,15 @@ def main() -> None:
         print("  already up to date")
     if "tts_qwen3_python" not in new:
         print("  ! Qwen3-TTS environment not found: pass --tts-python <path to its python>")
-    if not (current.get("llm_base_url") or args.llm_url):
-        print("  ! no llm_base_url: pass --llm-url http://127.0.0.1:8080/v1 if you use llama-server")
+    if not new.get("llama_server_model"):
+        print("  ! llama-server is not started by Jarvis: pass --llm-model <chat model .gguf>")
+        found = list_ggufs()
+        if found:
+            print("    .gguf files found:")
+            for f in found[:15]:
+                print(f"      {f}")
+    elif not new.get("llama_server_embedding_model"):
+        print("  ! no embedding model (memory search will not work): add --download-embed")
     if args.dry_run or not changed:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
