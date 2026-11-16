@@ -1748,6 +1748,16 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
             guidance.append(
                 "Always respond in English regardless of the language the user speaks in."
             )
+        else:
+            # Multilingual voice: the English system prompt otherwise pulls small models into
+            # English. The detected (or forced, ``whisper_language``) code names the language
+            # without any per-language rule here.
+            _lang = (language or getattr(cfg, "whisper_language", None) or "").strip()
+            guidance.append(
+                "Always reply in the language the user speaks"
+                + (f" (ISO 639-1 code '{_lang}')" if _lang else "")
+                + ", even though these instructions are in English."
+            )
 
         if transcript_context:
             guidance.append(transcript_context)

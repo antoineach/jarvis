@@ -127,11 +127,12 @@ def preset(args, current: dict) -> dict:
         "tts_engine": "qwen3",
         "tts_qwen3_language": "French",
         "tts_qwen3_size": "0.6B",
-        # Fewer model calls per turn. The task-list planner costs one full call and only helps
-        # multi-step requests. The LLM tool router costs another call; with only the built-in
-        # tools, sending all of them is cheaper than choosing. "keyword" is NOT an option for
-        # French: it matches query words against English tool descriptions.
-        "planner_enabled": False,
+        # The planner stays on: with a small model it is what makes the reply call tools instead
+        # of inventing an answer (measured: weather made up with it off), and it skips the memory
+        # search when not needed. The LLM tool router costs a call; with only the built-in tools,
+        # sending all of them is cheaper. "keyword" is NOT an option for French: it matches
+        # query words against English tool descriptions.
+        "planner_enabled": True,
         "tool_selection_strategy": "llm" if current.get("mcps") else "all",
         # French household wording.
         "timer_announcement": "{label} : c'est terminé !",

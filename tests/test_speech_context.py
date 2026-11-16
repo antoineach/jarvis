@@ -447,3 +447,20 @@ def test_reference_data_does_not_repeat_the_separately_supplied_request():
                                      TranscriptSegment(current, 3, 4)], current_text=current)
     assert current not in snapshot.render()
     assert 'Unrelated television conversation' in snapshot.render()
+
+
+def test_multilingual_voice_replies_in_the_user_language(mock_config, db, dialogue_memory):
+    from jarvis.reply import engine
+    systems = []
+
+    def chat(**kwargs):
+        systems.append(kwargs['messages'][0]['content'])
+        return {'message': {'role': 'assistant', 'content': 'Bonjour.'}}
+    mock_config.tts_engine = 'qwen3'
+    with patch.object(engine, 'select_tools', return_value=['stop']), \
+         patch.object(engine, 'plan_query', return_value=['Reply to the user.']), \
+         patch.object(engine, 'chat_with_messages', side_effect=chat):
+        engine.run_reply_engine(db, mock_config, None, 'Quelle heure est-il ?', dialogue_memory,
+                                language='fr', quiet=True)
+    assert "Always reply in the language the user speaks (ISO 639-1 code 'fr')" in systems[0]
+    assert 'Always respond in English' not in systems[0]

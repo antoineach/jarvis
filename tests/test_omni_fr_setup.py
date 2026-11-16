@@ -63,7 +63,7 @@ def test_preset_script_merges_and_keeps_user_keys(tmp_path):
     assert out["llm_base_url"] == "http://127.0.0.1:8080/v1" and out["mcps"] == {"ha": {}}
     assert out["tts_engine"] == "qwen3" and out["tts_qwen3_mode"] == "clone"
     assert out["tts_qwen3_audio_prompt"] == str(voice.resolve())
-    assert out["whisper_language"] == "fr" and out["planner_enabled"] is False
+    assert out["whisper_language"] == "fr" and out["planner_enabled"] is True
     assert out["tool_selection_strategy"] == "llm"          # MCP tools present: keep the router
     assert out["whisper_backend"] == "parakeet" and out["stt_quantization"] == "int8"
     assert (tmp_path / "config.json.bak").exists()
