@@ -141,10 +141,10 @@ class OpenAICompatibleBackend(LLMBackend):
     def base_url(self) -> str:
         return self._base_url
 
-    def _slot_fields(self, kind: str) -> Dict[str, Any]:
+    def _slot_fields(self, kind: str, prompt_key: str = "") -> Dict[str, Any]:
         """Pin the request to a llama-server slot when Jarvis manages a multi-slot server."""
         from .local_server import slot_for
-        slot = slot_for(kind) if self._thinking_fields(False) else None
+        slot = slot_for(kind, prompt_key) if self._thinking_fields(False) else None
         return {} if slot is None else {"id_slot": slot}
 
     def _apply_template(self, messages: List[Dict[str, Any]], tools: Optional[list],
@@ -378,7 +378,9 @@ class OpenAICompatibleBackend(LLMBackend):
         }
         payload.update(self._thinking_fields(thinking))
         kind = _chat_kind()
-        payload.update(self._slot_fields(kind))
+        first = sanitised[0] if sanitised else {}
+        key = str(first.get("content", ""))[:160] if first.get("role") == "system" else ""
+        payload.update(self._slot_fields(kind, key))
         if extra_options and isinstance(extra_options, dict):
             # ``temperature``, ``max_tokens``, ``top_p`` etc. live at the
             # payload root in the OpenAI shape, not under an ``options``

@@ -34,7 +34,7 @@ from ..debug import debug_log
 # uses ~10k: reply ~6.5k, judge ~1.3k, planner ~2k): slot 0 keeps the reply prompt between turns,
 # slot 1 the intent judge, slot 2 the other short calls (planner, digests), so none evicts another. With llama-server's default (4 slots, 8k shared) every short call evicted the reply
 # prompt: measured 0 cached tokens on every reply, ~3 s of re-reading per turn.
-DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "4", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"]
+DEFAULT_ARGS = ["-ngl", "99", "-c", "24576", "-np", "5", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"]
 # Gemma-family models (Gemma 4, Nemotron-3.5-Bolt-E4B) use sliding-window layers: llama-server can
 # only resume a cached prompt from a saved context checkpoint at or before the first difference.
 # Measured: "forcing full prompt re-processing due to lack of cache data (likely due to SWA)"
@@ -48,7 +48,10 @@ DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "4", "--kv-unified", "-fa", 
 # -ot per_layer_token_embd=CPU: Gemma 4 / Gemma 3n "E" models carry large per-layer embedding
 # tables that are only looked up, never multiplied; keeping them in RAM frees VRAM (Unsloth lists
 # the E4B Q4_K_M at ~4 GB VRAM plus system RAM). No effect on models without that tensor.
-REPLY_SLOT, JUDGE_SLOT, PLAN_SLOT, FAST_SLOT = 0, 1, 2, 3
+REPLY_SLOT, JUDGE_SLOT, PLAN_SLOT, FAST_SLOT, JUDGE_SLOT_2 = 0, 1, 2, 3, 4
+# The intent judge alternates two system prompts (wake-word mode, hot-window mode): with 5 slots
+# each gets its own, otherwise every mode switch re-reads the whole judge prompt (measured).
+_judge_slots: dict = {}
 _pinning = False
 _slots = 1
 EMBED_ARGS = ["--embeddings", "-ngl", "0", "-c", "2048", "-b", "2048", "-ub", "2048"]
@@ -135,7 +138,7 @@ def _parallel(args: List[str]) -> int:
     return 1
 
 
-def slot_for(kind: str) -> Optional[int]:
+def slot_for(kind: str, prompt_key: str = "") -> Optional[int]:
     """llama-server slot for a request, when Jarvis started the server with >= 2 slots.
 
     ``kind``: "reply" (chat with tool schemas: only the reply loop sends them), "chat" (chat
@@ -146,6 +149,15 @@ def slot_for(kind: str) -> Optional[int]:
         return None
     if kind == "reply":
         return REPLY_SLOT
+    if kind == "chat" and _slots >= 5 and prompt_key:
+        if prompt_key not in _judge_slots:
+            used = set(_judge_slots.values())
+            free = [s for s in (JUDGE_SLOT, JUDGE_SLOT_2) if s not in used]
+            if not free:                         # a third prompt family: recycle the oldest slot
+                oldest = next(iter(_judge_slots))
+                free = [_judge_slots.pop(oldest)]
+            _judge_slots[prompt_key] = free[0]
+        return _judge_slots[prompt_key]
     if kind == "chat" or _slots < 3:
         return JUDGE_SLOT
     if _slots >= 4 and kind != "plan":

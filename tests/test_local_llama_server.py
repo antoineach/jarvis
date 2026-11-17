@@ -177,3 +177,14 @@ def test_dflash_flags_and_fallback_when_refused(fake, tmp_path, capsys):
     assert "draft-dflash" in seen[0] and "--spec-type" not in seen[1]
     assert "refused the DFlash drafter" in capsys.readouterr().out
     assert local_server._health(cfg.llm_base_url) == 200
+
+
+def test_each_judge_prompt_family_gets_its_own_slot(monkeypatch):
+    monkeypatch.setattr(local_server, "_pinning", True)
+    monkeypatch.setattr(local_server, "_slots", 5)
+    monkeypatch.setattr(local_server, "_judge_slots", {})
+    wake, hot = "You classify speech directed at Jarvis.", "You are the intent judge ... HOT WINDOW MODE"
+    assert local_server.slot_for("chat", wake) == 1
+    assert local_server.slot_for("chat", hot) == 4
+    assert local_server.slot_for("chat", wake) == 1          # stable across turns
+    assert local_server.slot_for("reply", wake) == 0

@@ -567,7 +567,7 @@ def get_default_config() -> Dict[str, Any]:
         # Empty = Jarvis expects the server to be running already.
         "llama_server_path": None,
         "llama_server_model": None,
-        "llama_server_args": ["-ngl", "99", "-c", "16384", "-np", "4", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"],  # 4 slots: replies / intent judge / planner / other short calls
+        "llama_server_args": ["-ngl", "99", "-c", "24576", "-np", "5", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"],  # 5 slots: replies / judge (2 modes) / planner / other short calls
         "llama_server_embedding_model": None,
         "llama_server_draft_model": None,  # DFlash drafter .gguf: faster generation, ~0.4 GB VRAM
         "embedding_api_key": "",
@@ -1008,7 +1008,7 @@ def load_settings() -> Settings:
         embedding_base_url=embedding_base_url,
         llama_server_path=(str(merged.get("llama_server_path") or "").strip() or None),
         llama_server_model=(str(merged.get("llama_server_model") or "").strip() or None),
-        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "16384", "-np", "4", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"])],
+        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "24576", "-np", "5", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"])],
         llama_server_embedding_model=(str(merged.get("llama_server_embedding_model") or "").strip() or None),
         llama_server_draft_model=(str(merged.get("llama_server_draft_model") or "").strip() or None),
         embedding_api_key=embedding_api_key,
