@@ -224,6 +224,10 @@ def preset(args, current: dict) -> dict:
         "persona_style": "home_agent",
         # Plan while the intent judge decides (parallel LLM calls on separate llama-server slots).
         "speculative_planning": True,
+        # "Jarvis, ..." is addressed by definition: no intent-judge call for it (~1.5 s saved).
+        "wake_word_skips_judge": True,
+        # Web pages digested in one call instead of 2-3 sequential ones (~1 s per extra call).
+        "tool_digest_batch_chars": 6000,
         "memory_write": "off",
         "memory_enrichment_source": "none",
     }

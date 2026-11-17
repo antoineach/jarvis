@@ -653,8 +653,10 @@ def digest_tool_result_for_query(
         f"'{tool_name}'.)"
     )
 
-    # Single-batch fast path — the typical webSearch result fits here.
-    if len(raw) <= _TOOL_DIGEST_BATCH_MAX_CHARS:
+    # Single-batch fast path — the typical webSearch result fits here. ``tool_digest_batch_chars``
+    # raises the batch size: one distil call instead of several sequential round trips.
+    batch_max = int(getattr(cfg, "tool_digest_batch_chars", 0) or _TOOL_DIGEST_BATCH_MAX_CHARS)
+    if len(raw) <= batch_max:
         cleaned = _distil_tool_batch(
             framed_query, raw, cfg, chat_model,
             timeout_sec, thinking, transcript_context,
@@ -674,7 +676,7 @@ def digest_tool_result_for_query(
 
     # Multi-batch path. Split on paragraph boundaries so the fence framing
     # and envelope headers stay in whichever batch contains them.
-    chunks = _split_on_paragraph_boundary(raw, _TOOL_DIGEST_BATCH_MAX_CHARS)
+    chunks = _split_on_paragraph_boundary(raw, batch_max)
     notes: list[str] = []
     for chunk in chunks:
         note = _distil_tool_batch(

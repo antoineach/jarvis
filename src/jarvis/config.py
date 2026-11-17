@@ -247,6 +247,7 @@ class Settings:
     memory_write: str
     persona_style: str  # "butler" (default) or "home_agent"
     speculative_planning: bool  # plan while the intent judge runs
+    wake_word_skips_judge: bool  # no intent judge when the utterance opens with the wake word
     memory_enrichment_source: str  # "all", "diary", or "graph"
     # Tool-call + tool-result messages from prior replies in the hot window
     # are re-injected into the next turn so follow-ups can reuse them instead
@@ -266,6 +267,7 @@ class Settings:
     # for SMALL models (≤7B) and stays off for larger models that ground
     # on the raw payload reliably. Set explicitly to force on/off.
     tool_result_digest_enabled: Optional[bool]
+    tool_digest_batch_chars: int  # max chars per tool-digest call (0 = engine default, 2500)
 
     # Agentic Loop
     agentic_max_turns: int
@@ -687,6 +689,7 @@ def get_default_config() -> Dict[str, Any]:
         "memory_enrichment_max_results": 3,
         "memory_enrichment_source": "all",  # "all", "diary", "graph" or "none" (no long-term recall)
         "speculative_planning": False,  # voice: run the planner while the intent judge decides
+        "wake_word_skips_judge": False,  # skip the intent judge for "Jarvis, ..." utterances  # voice: run the planner while the intent judge decides
         "persona_style": "butler",  # "butler" (dry-witted) or "home_agent" (concise household voice agent)
         "memory_write": "all",  # "all", "diary" (no extracted facts) or "off" (nothing saved)
         # Tool carryover: cap re-injected prior tool turns + chars per entry.
@@ -700,6 +703,7 @@ def get_default_config() -> Dict[str, Any]:
         # Auto-on for small models mitigates fetch_web_page's 50k-char payloads
         # blowing the 8192 num_ctx window before the main model sees them.
         "tool_result_digest_enabled": None,
+        "tool_digest_batch_chars": 0,  # 0 = 2500; larger = fewer sequential digest calls
 
         # Agentic Loop
         "agentic_max_turns": 8,
@@ -1117,10 +1121,12 @@ def load_settings() -> Settings:
         memory_write=memory_write,
         persona_style=persona_style,
         speculative_planning=bool(merged.get("speculative_planning", False)),
+        wake_word_skips_judge=bool(merged.get("wake_word_skips_judge", False)),
         tool_carryover_max_turns=tool_carryover_max_turns,
         tool_carryover_per_entry_chars=tool_carryover_per_entry_chars,
         memory_digest_enabled=memory_digest_enabled,
         tool_result_digest_enabled=tool_result_digest_enabled,
+        tool_digest_batch_chars=max(0, int(merged.get("tool_digest_batch_chars", 0) or 0)),
         agentic_max_turns=agentic_max_turns,
         tool_selection_strategy=tool_selection_strategy,
         tool_search_max_calls=tool_search_max_calls,

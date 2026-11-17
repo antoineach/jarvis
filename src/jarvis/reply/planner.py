@@ -947,6 +947,17 @@ def _parse_plan_step_concrete(
     if declared:
         unknown = args.keys() - declared
         if unknown:
+            # One misnamed key and exactly one unfilled string property: the mapping is unambiguous
+            # (measured: `webSearch query='...'` for the `search_query` parameter cost a 1.7 s
+            # resolver round trip). Anything else goes to the LLM resolver, which can remap.
+            unfilled = [k for k in declared if k not in args
+                        and isinstance(properties.get(k), dict)
+                        and properties[k].get("type") in ("string", None)]
+            if len(unknown) == 1 and len(unfilled) == 1 and isinstance(args[next(iter(unknown))], str):
+                old = next(iter(unknown))
+                args[unfilled[0]] = args.pop(old)
+                debug_log(f"planner: remapped concrete argument {old!r} -> {unfilled[0]!r}", "planning")
+                return name, args
             # The planner used key names that don't match the tool's
             # schema — surface to the LLM resolver which can remap them.
             return None

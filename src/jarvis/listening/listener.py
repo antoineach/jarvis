@@ -896,6 +896,7 @@ class VoiceListener(threading.Thread):
             and has_engagement_signal
             and self._intent_judge is not None
             and self._intent_judge.available
+            and not self._leading_wake_word(text_lower, is_speaking_now)
         ):
             # Get recent transcript segments for context (full buffer)
             context_segments = self._transcript_buffer.get_last_seconds(self._buffer_duration)
@@ -1038,6 +1039,25 @@ class VoiceListener(threading.Thread):
                 pass
         else:
             debug_log(f"input ignored (no wake word{intent_info}): {text_lower}", "voice")
+
+    def _leading_wake_word(self, text_lower: str, is_speaking_now: bool) -> bool:
+        """``wake_word_skips_judge``: an utterance that opens with the wake word ("Jarvis, ...",
+        "salut Jarvis, ...") is addressed to the assistant, so the intent judge (one LLM call,
+        ~1.5 s) is skipped and the wake-word path dispatches it. Not while the assistant speaks
+        (echo), and only within the first three words (a mention later is not an address)."""
+        if not getattr(self.cfg, "wake_word_skips_judge", False) or is_speaking_now:
+            return False
+        import re
+        words = re.findall(r"[\w'-]+", text_lower)[:3]
+        if not words:
+            return False
+        wake_word = getattr(self.cfg, "wake_word", "jarvis")
+        aliases = list(set(getattr(self.cfg, "wake_aliases", [])) | {wake_word})
+        ratio = float(getattr(self.cfg, "wake_fuzzy_ratio", 0.78))
+        hit = is_wake_word_detected(" ".join(words), wake_word, aliases, ratio)
+        if hit:
+            debug_log("intent judge skipped: utterance opens with the wake word", "voice")
+        return hit
 
     def _capture_speech_context(self, query: str):
         from .speech_context import SpeechContext
