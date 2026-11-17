@@ -121,6 +121,7 @@ class Settings:
     llama_server_model: Optional[str]  # chat GGUF
     llama_server_args: list
     llama_server_embedding_model: Optional[str]  # embedding GGUF, served on embedding_base_url
+    llama_server_draft_model: Optional[str]  # DFlash drafter GGUF (speculative decoding)
     embedding_api_key: str
     embedding_model: str
     # Disk-format aliases. Older config files name these fields, so they
@@ -562,6 +563,7 @@ def get_default_config() -> Dict[str, Any]:
         "llama_server_model": None,
         "llama_server_args": ["-ngl", "99", "-c", "16384", "-np", "4", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"],  # 4 slots: replies / intent judge / planner / other short calls
         "llama_server_embedding_model": None,
+        "llama_server_draft_model": None,  # DFlash drafter .gguf: faster generation, ~0.4 GB VRAM
         "embedding_api_key": "",
         "embedding_model": "",  # falls back to ollama_embed_model when empty
         "ollama_base_url": "http://127.0.0.1:11434",
@@ -992,6 +994,7 @@ def load_settings() -> Settings:
         llama_server_model=(str(merged.get("llama_server_model") or "").strip() or None),
         llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "16384", "-np", "4", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"])],
         llama_server_embedding_model=(str(merged.get("llama_server_embedding_model") or "").strip() or None),
+        llama_server_draft_model=(str(merged.get("llama_server_draft_model") or "").strip() or None),
         embedding_api_key=embedding_api_key,
         embedding_model=embedding_model,
         ollama_base_url=ollama_base_url,

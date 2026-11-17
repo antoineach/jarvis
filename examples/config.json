@@ -34,6 +34,7 @@
     "--jinja"
   ],
   "llama_server_embedding_model": null,
+  "llama_server_draft_model": null,
   "embedding_api_key": "",
   "embedding_model": "",
   "ollama_base_url": "http://127.0.0.1:11434",

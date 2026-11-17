@@ -152,3 +152,28 @@ def test_server_log_lines_about_caching_are_echoed(tmp_path, monkeypatch, capsys
     assert "SWA" in out and "eval time = 1 ms" not in out
     local_server.report_server_log("chat")                 # nothing new: nothing printed
     assert capsys.readouterr().out == ""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="shebang fake executable")
+def test_dflash_flags_and_fallback_when_refused(fake, tmp_path, capsys):
+    exe, model = fake
+    draft = tmp_path / "dflash.gguf"
+    draft.write_bytes(b"x")
+    # the fake server exits when it sees --fail: put it in the drafter flags' place via args
+    cfg = _cfg(exe, model, _port(), llama_server_draft_model=str(draft))
+    seen = []
+    real = local_server._start
+
+    def spy(name, exe_, model_, url, args, cpu_only=False):
+        seen.append(list(args))
+        if "--spec-type" in args:
+            return False                         # build without DFlash support
+        return real(name, exe_, model_, url, args, cpu_only)
+    local_server._start = spy
+    try:
+        local_server.ensure_local_servers(cfg)
+    finally:
+        local_server._start = real
+    assert "draft-dflash" in seen[0] and "--spec-type" not in seen[1]
+    assert "refused the DFlash drafter" in capsys.readouterr().out
+    assert local_server._health(cfg.llm_base_url) == 200

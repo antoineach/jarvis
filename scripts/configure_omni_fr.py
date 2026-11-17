@@ -111,6 +111,25 @@ def download_embedding_model() -> str | None:
     return None
 
 
+def download_dflash(dest: Path) -> str | None:
+    """The DFlash drafter of LLM_REPO (Q8_0, ~0.4 GB: the 2070 has no native BF16)."""
+    try:
+        from huggingface_hub import hf_hub_download, list_repo_files
+    except ImportError:
+        print("  ! huggingface_hub missing: pip install huggingface_hub")
+        return None
+    files = [f for f in list_repo_files(LLM_REPO) if f.endswith(".gguf") and "dflash" in f.lower()]
+    pick = next((f for f in files if "q8_0" in f.lower()), files[0] if files else None)
+    if not pick:
+        print(f"  ! no DFlash file in {LLM_REPO}")
+        return None
+    target = dest / Path(pick).name
+    if target.exists():
+        return str(target)
+    print(f"  downloading {LLM_REPO}/{pick} to {dest} ...")
+    return hf_hub_download(LLM_REPO, pick, local_dir=str(dest))
+
+
 def download_llm(quant: str, dest: Path) -> str | None:
     """The chat GGUF of LLM_REPO matching ``quant`` (e.g. UD-Q4_K_XL), into ``dest``."""
     try:
@@ -216,6 +235,12 @@ def preset(args, current: dict) -> dict:
                   "llama_server_model": str(Path(llm_model).expanduser().resolve()),
                   "llm_provider": "openai_compatible", "llm_base_url": llm_url,
                   "llm_chat_model": Path(llm_model).stem, "fast_model": ""})
+        if args.dflash:
+            drafter = download_dflash(Path(p["llama_server_model"]).parent)
+            if drafter:
+                p["llama_server_draft_model"] = str(Path(drafter).resolve())
+        elif args.no_dflash:
+            p["llama_server_draft_model"] = None
         emb = args.embed_model or current.get("llama_server_embedding_model")
         if not emb and args.download_embed:
             emb = download_embedding_model()
@@ -238,6 +263,9 @@ def main() -> None:
     ap.add_argument("--download-llm", metavar="QUANT", nargs="?", const="UD-Q4_K_XL",
                     help="download Nemotron-3.5-Bolt-E4B at this quant (default UD-Q4_K_XL, 5.1 GB) next to "
                          "the current model and use it")
+    ap.add_argument("--dflash", action="store_true",
+                    help="download the DFlash drafter (Q8_0, ~0.4 GB) and enable speculative decoding")
+    ap.add_argument("--no-dflash", action="store_true", help="disable speculative decoding")
     ap.add_argument("--llama-server", help="path to llama-server(.exe) (auto-detected)")
     ap.add_argument("--embed-model", help="embedding model .gguf (memory search), served on port 8081")
     ap.add_argument("--download-embed", action="store_true",

@@ -152,7 +152,8 @@ def slot_for(kind: str) -> Optional[int]:
     return PLAN_SLOT
 
 
-_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|prompt eval time|n_past|restored|re-process|"
+_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|prompt eval time|n_past|restored|re-process|draft|"
+                        r"accept|speculative|"
                         r"update_slots|release:|offload|CPU_Mapped|CUDA0 model buffer", re.I)
 _log_pos: dict = {}
 
@@ -222,7 +223,23 @@ def ensure_local_servers(cfg) -> None:
         # The server only explains a cache miss ("forcing full prompt re-processing ...") at
         # verbosity 4; report_server_log echoes those lines under each timing line.
         args += ["-lv", "4"]
-    if _start("chat", exe, model, cfg.llm_base_url, args) and _parallel(args) >= 2:
+    draft = str(getattr(cfg, "llama_server_draft_model", "") or "").strip()
+    ok = False
+    if draft:
+        # DFlash speculative decoding (Nemotron-3.5-Bolt-E4B drafter): a ~360M model proposes 7
+        # tokens per step from the target's hidden states, the target verifies them; output is
+        # unchanged. Flags from the NVIDIA/Unsloth model cards. Falls back to no drafter when the
+        # build or the model refuses it.
+        spec = ["--spec-draft-model", os.path.expanduser(draft), "--spec-type", "draft-dflash",
+                "--spec-draft-n-max", "7", "--spec-draft-ngl", "99"]
+        ok = _start("chat", exe, model, cfg.llm_base_url, args + spec)
+        if not ok:
+            print("  ⚠️ llama-server refused the DFlash drafter: starting without speculative decoding",
+                  flush=True)
+            stop_started_servers()           # only the chat server has been started at this point
+    if not ok:
+        ok = _start("chat", exe, model, cfg.llm_base_url, args)
+    if ok and _parallel(args) >= 2:
         _pinning, _slots = True, _parallel(args)
     emb = str(getattr(cfg, "llama_server_embedding_model", "") or "").strip()
     emb_url = str(getattr(cfg, "embedding_base_url", "") or "").strip()
