@@ -75,9 +75,18 @@ def prefix_report(key: str, tools: Any, messages: list, render: Optional[Callabl
         if prev is not None and prev[0][0] == "rendered prompt":
             a, b = prev[0][1], rendered
             k = next((j for j in range(min(len(a), len(b))) if a[j] != b[j]), min(len(a), len(b)))
-            snippet = b[max(0, k - 70):k + 70].replace("\n", " ")
+            sa = a[max(0, k - 40):k + 160].replace("\n", "⏎")
+            sb = b[max(0, k - 40):k + 160].replace("\n", "⏎")
             print(f"  🧩 prompt cache: identical to previous call for the first {100 * k / max(len(b), 1):.0f}% "
-                  f"({k}/{len(b)} chars), then: …{snippet}…", flush=True)
+                  f"({k}/{len(b)} chars)\n     before: …{sa}…\n     now:    …{sb}…", flush=True)
+            try:                                       # full texts, for a closer look
+                from pathlib import Path
+                d = Path.home() / ".local" / "share" / "jarvis" / "logs"
+                d.mkdir(parents=True, exist_ok=True)
+                (d / f"prompt-{key.replace(':', '_')}-before.txt").write_text(a, encoding="utf-8")
+                (d / f"prompt-{key.replace(':', '_')}-now.txt").write_text(b, encoding="utf-8")
+            except Exception:
+                pass
         return
     parts = [("tools", json.dumps(tools or [], sort_keys=True, ensure_ascii=False))]
     for i, m in enumerate(messages or []):

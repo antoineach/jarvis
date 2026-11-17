@@ -127,9 +127,9 @@ def preset(args, current: dict) -> dict:
         "tts_engine": "qwen3",
         "tts_qwen3_language": "French",
         "tts_qwen3_size": "0.6B",
-        # 4 codec steps = 333 ms chunks: first audio and the speed estimate arrive ~0.3 s sooner on a
-        # GPU that generates barely faster than real time. Back to 8 if playback gets choppy.
-        "tts_qwen3_chunk": 4,
+        # 8 codec steps (667 ms). Measured on an RTX 2070: 4 made generation slower than real time
+        # (per-chunk overhead) and doubled the wait before speaking (1.6 s -> 3.4 s).
+        "tts_qwen3_chunk": 8,
         # The planner stays on: with a small model it is what makes the reply call tools instead
         # of inventing an answer (measured: weather made up with it off), and it skips the memory
         # search when not needed. The LLM tool router costs a call; with only the built-in tools,
