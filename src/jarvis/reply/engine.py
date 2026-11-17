@@ -1770,6 +1770,25 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                 "instructions are in English."
             )
 
+        # Static parts first, per-turn parts after: a local server reuses its prompt cache only up to
+        # the first difference, so the tool catalogue (~2k tokens with text tools) sits before the
+        # transcript / memory / plan blocks that change every turn.
+        if use_text_tools and tools_desc:
+            # Text-based tool calling: inject tool descriptions as plain text. The tools_desc
+            # already specifies the protocol (`tool_calls: [{...}]` JSON literal); don't
+            # append a competing markdown-fence protocol here — two formats in the same
+            # prompt confuses small models and they emit half-native/half-fenced hybrids
+            # that neither parser recognises. The engine's _extract_structured_tool_call
+            # parses both the `tool_calls: [...]` literal and a markdown fence, so either
+            # form the model naturally emits will succeed.
+            guidance.append("\n" + tools_desc)
+            # List the exact allowed tool names so the model can't invent ones
+            # like `wikipedia.run` or `google.search` — gemma models have strong
+            # priors to emit those even when they aren't in the tool list.
+            guidance.append(_text_tool_call_guidance(list(known_tool_names)))
+        # else: tools are passed via the native tools API parameter — do not include tools_desc
+        # here as well, since that confuses the model and causes it to not use tools properly.
+
         if transcript_context:
             guidance.append(transcript_context)
 
@@ -1850,21 +1869,6 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
             else:
                 guidance.append(format_plan_block(action_plan))
 
-        if use_text_tools and tools_desc:
-            # Text-based tool calling: inject tool descriptions as plain text. The tools_desc
-            # already specifies the protocol (`tool_calls: [{...}]` JSON literal); don't
-            # append a competing markdown-fence protocol here — two formats in the same
-            # prompt confuses small models and they emit half-native/half-fenced hybrids
-            # that neither parser recognises. The engine's _extract_structured_tool_call
-            # parses both the `tool_calls: [...]` literal and a markdown fence, so either
-            # form the model naturally emits will succeed.
-            guidance.append("\n" + tools_desc)
-            # List the exact allowed tool names so the model can't invent ones
-            # like `wikipedia.run` or `google.search` — gemma models have strong
-            # priors to emit those even when they aren't in the tool list.
-            guidance.append(_text_tool_call_guidance(list(known_tool_names)))
-        # else: tools are passed via the native tools API parameter — do not include tools_desc
-        # here as well, since that confuses the model and causes it to not use tools properly.
 
         if _resource_context:
             guidance.append(_resource_context)
@@ -1884,6 +1888,12 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                 )
             )
 
+        if tts_engine not in ('piper', 'chatterbox'):
+            # Restated last: after English tool results small models drift back to English
+            # (measured on the weather tool), and the end of the prompt weighs most.
+            _lang = (language or getattr(cfg, "whisper_language", None) or "").strip()
+            guidance.append("Reminder: answer in the user's language"
+                            + (f" ('{_lang}')" if _lang else "") + ", not in the language of tool results.")
         return "\n".join(guidance)
 
     messages = []  # type: ignore[var-annotated]

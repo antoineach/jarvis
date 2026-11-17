@@ -153,7 +153,7 @@ _CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|prompt eval time|n_past|r
 _log_pos: dict = {}
 
 
-def report_server_log(name: str = "chat", max_lines: int = 8) -> None:
+def report_server_log(name: str = "chat", max_lines: int = 10) -> None:
     """Echo the llama-server log lines about slots and prompt caching written since the last call.
 
     Diagnostics for JARVIS_TIMINGS: shows the server's own reason for a cache miss (slot chosen,
@@ -213,6 +213,11 @@ def ensure_local_servers(cfg) -> None:
     atexit.register(stop_started_servers)
     global _pinning, _slots
     args = list(getattr(cfg, "llama_server_args", None) or DEFAULT_ARGS)
+    from . import timing
+    if timing.enabled() and "-lv" not in args:
+        # The server only explains a cache miss ("forcing full prompt re-processing ...") at
+        # verbosity 4; report_server_log echoes those lines under each timing line.
+        args += ["-lv", "4"]
     if _start("chat", exe, model, cfg.llm_base_url, args) and _parallel(args) >= 2:
         _pinning, _slots = True, _parallel(args)
     emb = str(getattr(cfg, "llama_server_embedding_model", "") or "").strip()
