@@ -904,6 +904,7 @@ class VoiceListener(threading.Thread):
             last_tts_text = (self.echo_detector._last_tts_text or "") if same_tts_context else ""
             last_tts_finish_time = (self.echo_detector._last_tts_finish_time or 0.0) if same_tts_context else 0.0
 
+            self._start_plan_prefetch(accepted_text, language)
             intent_judgment = self._intent_judge.judge(
                 segments=context_segments,
                 wake_timestamp=self._wake_timestamp,
@@ -1038,6 +1039,31 @@ class VoiceListener(threading.Thread):
         else:
             debug_log(f"input ignored (no wake word{intent_info}): {text_lower}", "voice")
 
+    def _capture_speech_context(self, query: str):
+        from .speech_context import SpeechContext
+        return SpeechContext.capture(
+            self._transcript_buffer.get_last_seconds(self._buffer_duration),
+            current_text=query,
+            last_tts=self.echo_detector._last_tts_text or "",
+            assistant_names=(self.cfg.wake_word, *self.cfg.wake_aliases),
+        )
+
+    def _start_plan_prefetch(self, query: str, language: Optional[str]) -> None:
+        """``speculative_planning``: run the reply preparation up to the planner while the intent
+        judge decides, so a directed query finds its plan ready (see planner.prefetch_plan)."""
+        if not getattr(self.cfg, "speculative_planning", False) or not query:
+            return
+        from ..reply.engine import run_reply_engine
+
+        def run():
+            try:
+                run_reply_engine(self.db, self.cfg, None, query, self.dialogue_memory,
+                                 language=language, speech_context=self._capture_speech_context(query),
+                                 quiet=True, prefetch_plan_only=True)
+            except Exception as exc:
+                debug_log(f"plan prefetch failed (non-fatal): {exc}", "planning")
+        threading.Thread(target=run, name="plan-prefetch", daemon=True).start()
+
     def _dispatch_query(self, query: str, *, language: Optional[str], generation: int) -> None:
         """
         Dispatch a complete query to the reply engine.
@@ -1049,13 +1075,7 @@ class VoiceListener(threading.Thread):
         if not self._transcription_is_current(generation):
             return
         debug_log(f"dispatching query (language: {language}): '{query}'", "voice")
-        from .speech_context import SpeechContext
-        speech_context = SpeechContext.capture(
-            self._transcript_buffer.get_last_seconds(self._buffer_duration),
-            current_text=query,
-            last_tts=self.echo_detector._last_tts_text or "",
-            assistant_names=(self.cfg.wake_word, *self.cfg.wake_aliases),
-        )
+        speech_context = self._capture_speech_context(query)
         debug_log(f"📎 Speech context snapshot: {len(speech_context.segments)} segments", "voice")
 
         # Clear audio buffers to prevent stale audio from next query

@@ -108,7 +108,7 @@ def _direct_kind() -> str:
     f = sys._getframe(2)
     depth = 0
     while f is not None and depth < 40:
-        if f.f_code.co_name == "plan_query":
+        if f.f_code.co_name in ("plan_query", "prefetch_plan"):
             return "plan"
         f, depth = f.f_back, depth + 1
     return "direct"

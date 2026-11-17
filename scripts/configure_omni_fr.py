@@ -170,6 +170,8 @@ def preset(args, current: dict) -> dict:
         # across sessions (a 4B model mis-files facts and recalls its own wrong answers).
         # Concise household voice agent instead of the dry-witted butler (spoken, tools first).
         "persona_style": "home_agent",
+        # Plan while the intent judge decides (parallel LLM calls on separate llama-server slots).
+        "speculative_planning": True,
         "memory_write": "off",
         "memory_enrichment_source": "none",
     }

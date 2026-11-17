@@ -35,9 +35,13 @@ Contract:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import re
+import threading
+import time
+from concurrent.futures import Future
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Sequence, Tuple
 
@@ -480,21 +484,20 @@ def plan_query(
     system_prompt = _PROMPT_TEMPLATE.format(max_steps=MAX_STEPS)
     user_content = _build_user_message(query, dialogue_context, tools, transcript_context)
 
-    try:
-        raw = call_llm_direct(
-            cfg=cfg,
-            chat_model=model,
-            system_prompt=system_prompt,
-            user_content=user_content,
-            timeout_sec=effective_timeout,
-            thinking=False,
-            num_ctx=8192,
-            max_tokens=_PLANNER_TOKEN_BUDGET,
-            temperature=0.0,
-        )
-    except Exception as exc:  # pragma: no cover — defensive
-        debug_log(f"planner: LLM call failed — {exc}", "planning")
-        return []
+    speculative = _take_speculative(model, system_prompt, user_content)
+    if speculative is not None:
+        try:
+            raw = speculative.result(timeout=effective_timeout + 5.0)
+            debug_log("planner: reused the plan prefetched during intent judging", "planning")
+        except Exception:
+            raw = None
+            speculative = None
+    if speculative is None:
+        try:
+            raw = _call_planner_llm(cfg, model, system_prompt, user_content, effective_timeout)
+        except Exception as exc:  # pragma: no cover — defensive
+            debug_log(f"planner: LLM call failed — {exc}", "planning")
+            return []
 
     if not raw:
         debug_log("planner: empty LLM response", "planning")
@@ -522,6 +525,69 @@ def plan_query(
         "planning",
     )
     return steps
+
+
+def _call_planner_llm(cfg, model, system_prompt: str, user_content: str, timeout: float):
+    return call_llm_direct(
+        cfg=cfg,
+        chat_model=model,
+        system_prompt=system_prompt,
+        user_content=user_content,
+        timeout_sec=timeout,
+        thinking=False,
+        num_ctx=8192,
+        max_tokens=_PLANNER_TOKEN_BUDGET,
+        temperature=0.0,
+    )
+
+
+# ── Speculative planning ──────────────────────────────────────────────────
+# The voice listener runs the intent judge before dispatching a query; the planner then runs
+# after it, one LLM round trip later. With ``speculative_planning`` the listener starts the reply
+# engine's preparation (up to the planner) in the background while the judge runs: the planner
+# call is registered here, keyed on its exact prompt. When the real reply reaches the planner with
+# the same prompt it waits for that result instead of calling the model again; any difference
+# (the judge merged utterances, new speech arrived) is a cache miss and the plan is recomputed.
+# Plans from undirected speech are never used: they simply expire.
+_SPEC_TTL_S = 60.0
+_spec_lock = threading.Lock()
+_spec: dict = {}
+
+
+def _spec_key(model, system_prompt: str, user_content: str) -> str:
+    return hashlib.sha256(f"{model}\x00{system_prompt}\x00{user_content}".encode("utf-8")).hexdigest()
+
+
+def _take_speculative(model, system_prompt: str, user_content: str):
+    now = time.monotonic()
+    with _spec_lock:
+        for k in [k for k, (t, _) in _spec.items() if now - t > _SPEC_TTL_S]:
+            _spec.pop(k, None)
+        entry = _spec.pop(_spec_key(model, system_prompt, user_content), None)
+    return entry[1] if entry else None
+
+
+def prefetch_plan(cfg, query: str, dialogue_context: str, tools: Sequence[Tuple[str, str]], *,
+                  transcript_context: str = "") -> None:
+    """Compute the plan for these exact inputs now (blocking) and park it for ``plan_query``."""
+    if not query or len(query.strip()) < MIN_QUERY_CHARS or not getattr(cfg, "planner_enabled", True):
+        return
+    model = resolve_model(cfg, Tier.CHAT)
+    if not model:
+        return
+    system_prompt = _PROMPT_TEMPLATE.format(max_steps=MAX_STEPS)
+    user_content = _build_user_message(query, dialogue_context, tools, transcript_context)
+    key = _spec_key(model, system_prompt, user_content)
+    fut: Future = Future()
+    with _spec_lock:
+        if key in _spec:
+            return
+        _spec[key] = (time.monotonic(), fut)
+    try:
+        fut.set_result(_call_planner_llm(cfg, model, system_prompt, user_content,
+                                         float(getattr(cfg, "planner_timeout_sec", 3.0))))
+    except Exception as exc:
+        fut.set_exception(exc)
 
 
 def format_plan_block(steps: Sequence[str]) -> str:

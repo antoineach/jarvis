@@ -464,3 +464,21 @@ def test_multilingual_voice_replies_in_the_user_language(mock_config, db, dialog
                                 language='fr', quiet=True)
     assert "Always reply in the language the user speaks (ISO 639-1 code 'fr')" in systems[0]
     assert 'Always respond in English' not in systems[0]
+
+
+def test_prefetch_plan_only_parks_the_plan_and_has_no_reply_side_effects(mock_config, db, dialogue_memory):
+    from jarvis.reply import engine, planner
+    planner._spec.clear()
+    calls, chats = [], []
+    mock_config.planner_enabled = True
+    with patch.object(engine, 'select_tools', return_value=['getWeather', 'stop']), \
+         patch.object(planner, '_call_planner_llm', side_effect=lambda *a: calls.append(1) or 'getWeather\nReply to the user.'), \
+         patch.object(planner, 'resolve_model', return_value='m'), \
+         patch.object(engine, 'chat_with_messages', side_effect=lambda **kw: chats.append(1) or
+                      {'message': {'role': 'assistant', 'content': 'Il fait beau.'}}):
+        out = engine.run_reply_engine(db, mock_config, None, 'Quelle est la météo ce soir ?', dialogue_memory,
+                                      language='fr', quiet=True, prefetch_plan_only=True)
+        assert out is None and calls == [1] and chats == []
+        engine.run_reply_engine(db, mock_config, None, 'Quelle est la météo ce soir ?', dialogue_memory,
+                                language='fr', quiet=True)
+    assert calls == [1]                       # the real reply reused the prefetched plan

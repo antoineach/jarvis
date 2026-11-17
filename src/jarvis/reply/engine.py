@@ -1008,7 +1008,7 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                     language: Optional[str] = None,
                     quiet: bool = False,
                     speech_context: Optional["SpeechContext"] = None,
-                    *, cancel_event=None) -> Optional[str]:
+                    *, cancel_event=None, prefetch_plan_only: bool = False) -> Optional[str]:
     """
     Main entry point for reply generation.
 
@@ -1076,7 +1076,7 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                 pass
 
     # Refresh MCP tools on new conversation (memory expired)
-    if is_new_conversation and getattr(cfg, "mcps", {}):
+    if is_new_conversation and getattr(cfg, "mcps", {}) and not prefetch_plan_only:
         try:
             from ..tools.registry import refresh_mcp_tools, is_mcp_cache_initialized
             if is_mcp_cache_initialized():
@@ -1282,6 +1282,14 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
         and _query_word_count <= 8
         and getattr(cfg, "planner_enabled", True)
     )
+    if prefetch_plan_only:
+        # Speculative run started by the listener while the intent judge decides: park the plan
+        # for the real reply (planner.prefetch_plan) and stop here, before any reply side effect.
+        if not _skip_planner:
+            from .planner import prefetch_plan
+            prefetch_plan(cfg, redacted, _dialogue_ctx, _planner_tool_catalog,
+                          transcript_context=transcript_context)
+        return None
     if _skip_planner:
         # Positive signal: no tools, no memory needed. The warm profile
         # (injected unconditionally below) provides user-context for the
