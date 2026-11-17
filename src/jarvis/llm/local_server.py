@@ -33,11 +33,18 @@ from ..debug import debug_log
 # uses ~10k: reply ~6.5k, judge ~1.3k, planner ~2k): slot 0 keeps the reply prompt between turns,
 # slot 1 the intent judge, slot 2 the other short calls (planner, digests), so none evicts another. With llama-server's default (4 slots, 8k shared) every short call evicted the reply
 # prompt: measured 0 cached tokens on every reply, ~3 s of re-reading per turn.
-DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--jinja"]
+DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"]
 # --swa-full: Gemma-family models (Gemma 4, Nemotron-3.5-Bolt-E4B) use sliding-window attention
 # layers whose default cache only holds the last window, so llama.cpp cannot roll back to a prefix
 # that diverges mid-prompt and re-reads everything (measured: 0 cached tokens while 70% of the reply
 # prompt was identical turn to turn). The full SWA cache is a few hundred MB at 16k for an E4B.
+# --cache-ram 0: recent llama-server builds move a released slot's KV to a host-RAM prompt cache
+# and empty the slot (measured: n_tokens = 6129 at release, 0 at the next select of the same slot,
+# full re-read every turn). Without the host cache the KV stays in the pinned slot and the common
+# prefix is reused in place.
+# -ot per_layer_token_embd=CPU: Gemma 4 / Gemma 3n "E" models carry large per-layer embedding
+# tables that are only looked up, never multiplied; keeping them in RAM frees VRAM (Unsloth lists
+# the E4B Q4_K_M at ~4 GB VRAM plus system RAM). No effect on models without that tensor.
 REPLY_SLOT, JUDGE_SLOT, FAST_SLOT = 0, 1, 2
 _pinning = False
 _slots = 1
@@ -141,7 +148,8 @@ def slot_for(kind: str) -> Optional[int]:
     return JUDGE_SLOT
 
 
-_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|SWA|prompt eval time|n_past|restored|re-process", re.I)
+_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|prompt eval time|n_past|restored|re-process|"
+                        r"update_slots|release:|offload|CPU_Mapped|CUDA0 model buffer", re.I)
 _log_pos: dict = {}
 
 

@@ -558,7 +558,7 @@ def get_default_config() -> Dict[str, Any]:
         # Empty = Jarvis expects the server to be running already.
         "llama_server_path": None,
         "llama_server_model": None,
-        "llama_server_args": ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--jinja"],  # 3 slots: replies / intent judge / other fast calls
+        "llama_server_args": ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"],  # 3 slots: replies / intent judge / other fast calls
         "llama_server_embedding_model": None,
         "embedding_api_key": "",
         "embedding_model": "",  # falls back to ollama_embed_model when empty
@@ -983,7 +983,7 @@ def load_settings() -> Settings:
         embedding_base_url=embedding_base_url,
         llama_server_path=(str(merged.get("llama_server_path") or "").strip() or None),
         llama_server_model=(str(merged.get("llama_server_model") or "").strip() or None),
-        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--jinja"])],
+        llama_server_args=[str(x) for x in (merged.get("llama_server_args") or ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"])],
         llama_server_embedding_model=(str(merged.get("llama_server_embedding_model") or "").strip() or None),
         embedding_api_key=embedding_api_key,
         embedding_model=embedding_model,

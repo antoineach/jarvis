@@ -24,6 +24,10 @@
     "-ctv",
     "q8_0",
     "--swa-full",
+    "--cache-ram",
+    "0",
+    "-ot",
+    "per_layer_token_embd\\.weight=CPU",
     "--jinja"
   ],
   "llama_server_embedding_model": null,

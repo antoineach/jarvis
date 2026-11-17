@@ -43,6 +43,7 @@ LLAMA_GLOBS = ["~/llama*/**/llama-server*", "~/Downloads/llama*/**/llama-server*
                "~/.omnifr/**/llama-server*", "~/Downloads/**/llama-server.exe"]
 GGUF_DIRS = ["~/models", "~/Downloads", "~/.omnifr", "~/.lmstudio/models", "C:/models", "C:/modeles",
              "~/.local/share/jarvis/models", "~/.cache/huggingface/hub"]
+LLM_REPO = "unsloth/NVIDIA-Nemotron-3.5-Bolt-E4B-GGUF"
 EMBED_REPOS = ["ggml-org/embeddinggemma-300M-GGUF", "nomic-ai/nomic-embed-text-v1.5-GGUF"]
 
 
@@ -110,6 +111,26 @@ def download_embedding_model() -> str | None:
     return None
 
 
+def download_llm(quant: str, dest: Path) -> str | None:
+    """The chat GGUF of LLM_REPO matching ``quant`` (e.g. UD-Q4_K_XL), into ``dest``."""
+    try:
+        from huggingface_hub import hf_hub_download, list_repo_files
+    except ImportError:
+        print("  ! huggingface_hub missing: pip install huggingface_hub")
+        return None
+    files = [f for f in list_repo_files(LLM_REPO) if f.endswith(".gguf") and quant.lower() in f.lower()
+             and "mmproj" not in f.lower() and "dflash" not in f.lower()]
+    if not files:
+        print(f"  ! no {quant} file in {LLM_REPO}")
+        return None
+    target = dest / Path(files[0]).name
+    if target.exists():
+        print(f"  {target.name} already downloaded")
+        return str(target)
+    print(f"  downloading {LLM_REPO}/{files[0]} to {dest} (several GB)...")
+    return hf_hub_download(LLM_REPO, files[0], local_dir=str(dest))
+
+
 def find_tts_python() -> str | None:
     for c in TTS_PYTHON_CANDIDATES:
         p = Path(os.path.expanduser(c))
@@ -174,6 +195,11 @@ def preset(args, current: dict) -> dict:
 
     # llama.cpp started by Jarvis: chat server on 8080 (GPU), embedding server on 8081 (CPU).
     llm_model = args.llm_model or current.get("llama_server_model")
+    if args.download_llm:
+        here = Path(llm_model).expanduser() if llm_model else Path("C:/modeles")
+        dest = here if here.is_dir() else (here.parent if llm_model else here)
+        dest.mkdir(parents=True, exist_ok=True)
+        llm_model = download_llm(args.download_llm, dest) or llm_model
     if llm_model:
         llm_model = resolve_gguf(llm_model, "chat model")
         exe = args.llama_server or current.get("llama_server_path") or find_llama_server()
@@ -205,6 +231,9 @@ def main() -> None:
     ap.add_argument("--tts-python", help="python of the Qwen3-TTS environment (auto-detected)")
     ap.add_argument("--llm-url", help="OpenAI-compatible server, e.g. http://127.0.0.1:8080/v1 (llama-server)")
     ap.add_argument("--llm-model", help="chat model .gguf: Jarvis then starts llama-server itself")
+    ap.add_argument("--download-llm", metavar="QUANT", nargs="?", const="UD-Q4_K_XL",
+                    help="download Nemotron-3.5-Bolt-E4B at this quant (default UD-Q4_K_XL, 5.1 GB) next to "
+                         "the current model and use it")
     ap.add_argument("--llama-server", help="path to llama-server(.exe) (auto-detected)")
     ap.add_argument("--embed-model", help="embedding model .gguf (memory search), served on port 8081")
     ap.add_argument("--download-embed", action="store_true",

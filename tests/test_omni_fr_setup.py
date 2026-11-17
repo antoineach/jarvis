@@ -190,3 +190,18 @@ def test_prefix_report_falls_back_to_messages(monkeypatch, capsys):
     timing.prefix_report("m", [{"n": 1}], [{"role": "system", "content": "persona A"}])
     timing.prefix_report("m", [{"n": 1}], [{"role": "system", "content": "persona B"}])
     assert "message 0 (system), char 8" in capsys.readouterr().out
+
+
+def test_download_llm_picks_the_chat_gguf_of_the_quant(tmp_path, monkeypatch):
+    import types
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import configure_omni_fr as c
+    files = ["NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q3_K_XL.gguf", "NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf",
+             "mmproj-F16.gguf", "Nemotron-3.5-Bolt-E4B-DFlash-Q8_0.gguf"]
+    got = {}
+    fake = types.SimpleNamespace(list_repo_files=lambda repo: files,
+                                 hf_hub_download=lambda repo, f, local_dir: got.setdefault("f", f) and
+                                 str(tmp_path / f))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake)
+    path = c.download_llm("UD-Q4_K_XL", tmp_path)
+    assert got["f"] == "NVIDIA-Nemotron-3.5-Bolt-E4B-UD-Q4_K_XL.gguf" and path.endswith("Q4_K_XL.gguf")
