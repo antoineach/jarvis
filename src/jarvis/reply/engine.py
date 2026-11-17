@@ -1738,7 +1738,7 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
     action_plan = strip_memory_directives(action_plan)
 
     _assistant_name = str(getattr(cfg, "wake_word", "jarvis") or "jarvis").strip().capitalize()
-    _persona_prompt = build_system_prompt(_assistant_name)
+    _persona_prompt = build_system_prompt(_assistant_name, getattr(cfg, "persona_style", "butler"))
     _plan_in_recovery = False
     _plan_recovery_record = ""
     _recovery_guidance = (_PLAN_RECOVERY_HINT

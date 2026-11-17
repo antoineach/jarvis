@@ -119,6 +119,7 @@
   "dialogue_memory_timeout": 300.0,
   "memory_enrichment_max_results": 3,
   "memory_enrichment_source": "all",
+  "persona_style": "butler",
   "memory_write": "all",
   "tool_carryover_max_turns": 2,
   "tool_carryover_per_entry_chars": 1200,

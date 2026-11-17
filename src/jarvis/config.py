@@ -238,6 +238,7 @@ class Settings:
     dialogue_memory_timeout: float
     memory_enrichment_max_results: int
     memory_write: str
+    persona_style: str  # "butler" (default) or "home_agent"
     memory_enrichment_source: str  # "all", "diary", or "graph"
     # Tool-call + tool-result messages from prior replies in the hot window
     # are re-injected into the next turn so follow-ups can reuse them instead
@@ -669,6 +670,7 @@ def get_default_config() -> Dict[str, Any]:
         "dialogue_memory_timeout": 300.0,
         "memory_enrichment_max_results": 3,
         "memory_enrichment_source": "all",  # "all", "diary", "graph" or "none" (no long-term recall)
+        "persona_style": "butler",  # "butler" (dry-witted) or "home_agent" (concise household voice agent)
         "memory_write": "all",  # "all", "diary" (no extracted facts) or "off" (nothing saved)
         # Tool carryover: cap re-injected prior tool turns + chars per entry.
         "tool_carryover_max_turns": 2,
@@ -905,6 +907,9 @@ def load_settings() -> Settings:
     memory_enrichment_source = str(merged.get("memory_enrichment_source", "all")).lower()
     if memory_enrichment_source not in ("all", "diary", "graph", "none"):
         memory_enrichment_source = "all"
+    persona_style = str(merged.get("persona_style", "butler")).lower()
+    if persona_style not in ("butler", "home_agent"):
+        persona_style = "butler"
     memory_write = str(merged.get("memory_write", "all")).lower()
     if memory_write not in ("all", "diary", "off"):
         memory_write = "all"
@@ -1083,6 +1088,7 @@ def load_settings() -> Settings:
         memory_enrichment_max_results=memory_enrichment_max_results,
         memory_enrichment_source=memory_enrichment_source,
         memory_write=memory_write,
+        persona_style=persona_style,
         tool_carryover_max_turns=tool_carryover_max_turns,
         tool_carryover_per_entry_chars=tool_carryover_per_entry_chars,
         memory_digest_enabled=memory_digest_enabled,

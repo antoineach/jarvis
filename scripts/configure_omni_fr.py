@@ -168,6 +168,8 @@ def preset(args, current: dict) -> dict:
         "endpoint_silence_ms": 600,
         # Short-term memory only: the conversation of the session, nothing filed or recalled
         # across sessions (a 4B model mis-files facts and recalls its own wrong answers).
+        # Concise household voice agent instead of the dry-witted butler (spoken, tools first).
+        "persona_style": "home_agent",
         "memory_write": "off",
         "memory_enrichment_source": "none",
     }
