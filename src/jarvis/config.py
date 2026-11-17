@@ -311,6 +311,8 @@ class Settings:
     # no account) and language-aware via the Whisper-detected utterance
     # language.
     wikipedia_fallback_enabled: bool
+    # Keyless multi-engine search (ddgs package) when DuckDuckGo is blocked or empty.
+    web_metasearch_enabled: bool
 
     # Optional background child runs
     background_tasks_enabled: bool
@@ -738,6 +740,7 @@ def get_default_config() -> Dict[str, Any]:
         "timer_announcement": "{label}: time's up!",
         "brave_search_api_key": "",
         "wikipedia_fallback_enabled": True,
+        "web_metasearch_enabled": True,
         "background_tasks_enabled": False,
         "document_search_enabled": False,
         "document_search_paths": [],
@@ -982,6 +985,7 @@ def load_settings() -> Settings:
     timer_announcement = str(merged.get("timer_announcement") or "{label}: time's up!")
     brave_search_api_key = str(merged.get("brave_search_api_key", "") or "").strip()
     wikipedia_fallback_enabled = bool(merged.get("wikipedia_fallback_enabled", True))
+    web_metasearch_enabled = bool(merged.get("web_metasearch_enabled", True))
     background_tasks_enabled = merged["background_tasks_enabled"] is True
     document_search_enabled = bool(merged.get("document_search_enabled", False))
     raw_document_paths = merged.get("document_search_paths", [])
@@ -1152,6 +1156,7 @@ def load_settings() -> Settings:
         timer_announcement=timer_announcement,
         brave_search_api_key=brave_search_api_key,
         wikipedia_fallback_enabled=wikipedia_fallback_enabled,
+        web_metasearch_enabled=web_metasearch_enabled,
         background_tasks_enabled=background_tasks_enabled,
         document_search_enabled=document_search_enabled,
         document_search_paths=document_search_paths,

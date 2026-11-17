@@ -32,6 +32,8 @@ pygame>=2.1.0
 faiss-cpu>=1.7.4
 # NVIDIA Parakeet / Canary speech recognition (whisper_backend "parakeet"); uses the onnxruntime piper installs
 onnx-asr[hub]>=0.12
+# Keyless metasearch fallback for webSearch when DuckDuckGo serves its bot challenge
+ddgs>=9.5
 
 # NVIDIA CUDA libraries for GPU-accelerated speech recognition on Windows
 nvidia-cublas-cu12>=12.8.0; sys_platform == "win32"

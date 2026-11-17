@@ -944,7 +944,7 @@ class VoiceListener(threading.Thread):
                         self.state_manager.cancel_hot_window_activation()
                         self._transcript_buffer.mark_segment_processed(text_lower)
                         self._clear_audio_buffers()
-                        self.state_manager.start_collection(accepted_text, language=language)
+                        self.state_manager.start_collection(self._canonical_query(accepted_text), language=language)
                         self._start_thinking_tune()
                         try:
                             print(f"\n✨ Working on it: {self.state_manager.get_pending_query()}")
@@ -974,7 +974,7 @@ class VoiceListener(threading.Thread):
                         self.state_manager.cancel_hot_window_activation()
                         self._transcript_buffer.mark_segment_processed(text_lower)
                         self._clear_audio_buffers()
-                        self.state_manager.start_collection(accepted_text, language=language)
+                        self.state_manager.start_collection(self._canonical_query(accepted_text), language=language)
                         self._start_thinking_tune()
                         print(f"\n✨ Working on it: {self.state_manager.get_pending_query()}")
                         return
@@ -1007,7 +1007,7 @@ class VoiceListener(threading.Thread):
             # Clear audio buffers to prevent concatenation issues
             self._clear_audio_buffers()
 
-            self.state_manager.start_collection(accepted_text, language=language)
+            self.state_manager.start_collection(self._canonical_query(accepted_text), language=language)
 
             # Start thinking tune and show processing message
             self._start_thinking_tune()
@@ -1019,7 +1019,7 @@ class VoiceListener(threading.Thread):
 
         # Priority 5: Collection mode handling
         if self.state_manager.is_collecting():
-            self.state_manager.add_to_collection(accepted_text, language=language)
+            self.state_manager.add_to_collection(self._canonical_query(accepted_text), language=language)
             return
 
         # Priority 6: Non-wake input (ignore)
@@ -1089,13 +1089,22 @@ class VoiceListener(threading.Thread):
                 text, language, _ = self._transcribe_audio(audio)
                 text_lower = (text or "").strip().lower()
                 if text_lower and (hot or self._leading_wake_word(text_lower, False)):
-                    self._early_plan_query = text.strip()
+                    self._early_plan_query = self._canonical_query(text.strip())
                     self._start_plan_prefetch(text.strip(), language, loose=True)
             except Exception as exc:
                 debug_log(f"early plan failed (non-fatal): {exc}", "planning")
             finally:
                 self._early_plan_busy = False
         threading.Thread(target=run, name="early-plan", daemon=True).start()
+
+    def _canonical_query(self, text: str) -> str:
+        """The query with misheard forms of the assistant name restored ("Sarvis" -> "Jarvis")."""
+        try:
+            from .wake_detection import canonicalise_wake_name
+            return canonicalise_wake_name(text, str(getattr(self.cfg, "wake_word", "jarvis") or ""),
+                                          float(getattr(self.cfg, "wake_fuzzy_ratio", 0.78)))
+        except Exception:
+            return text
 
     def _leading_wake_word(self, text_lower: str, is_speaking_now: bool) -> bool:
         """``wake_word_skips_judge``: an utterance that opens with the wake word ("Jarvis, ...",
@@ -1130,6 +1139,7 @@ class VoiceListener(threading.Thread):
         judge decides, so a directed query finds its plan ready (see planner.prefetch_plan)."""
         if not query or (getattr(self.cfg, "speculative_planning", False) is not True and not loose):
             return
+        query = self._canonical_query(query)         # same text the dispatched query will carry
         if not loose and query.strip() == getattr(self, "_early_plan_query", None):
             return                                   # already planned during the end-of-speech silence
         from ..reply.engine import run_reply_engine

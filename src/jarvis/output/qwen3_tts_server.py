@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STYLES = {"calm": "Speak in a calm, soft and reassuring tone.",
@@ -73,6 +74,17 @@ def main() -> None:
                                                     chunk_size=a.chunk)
         return m.generate_custom_voice_streaming(text=text, speaker=speaker, language=a.language, instruct=instr,
                                                  chunk_size=a.chunk)
+
+    # One real request before reporting ready: the first voice-clone request also prepares the
+    # reference voice and the streaming path, and paid for it in the user's first reply (tts
+    # start 4.0 s against 1.7 s for the next ones, measured on an RTX 2070).
+    t0 = time.time()
+    try:
+        for _ in stream("Bonjour, je suis prêt.", "neutral"):
+            pass
+        print(f"warm-up request {time.time() - t0:.2f}s", flush=True)
+    except Exception as e:
+        print(f"warm-up request failed (non-fatal): {type(e).__name__}: {e}", flush=True)
 
     class H(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"

@@ -113,3 +113,29 @@ def is_stop_command_echo(text: str, tts_text: str, stop_commands: List[str], fuz
         if control and difflib.SequenceMatcher(a=heard, b=control).ratio() >= fuzzy_ratio:
             return False
     return heard in spoken
+
+
+def canonicalise_wake_name(text: str, wake_word: str, fuzzy_ratio: float = 0.78) -> str:
+    """Replace close mishearings of the primary name with the name itself.
+
+    Speech recognition regularly turns "Jarvis" into "Sarvis" or "Djarvis". Detection already
+    accepts those (same rule as ``is_wake_word_detected``), but the query handed to the planner
+    kept them, and the planner then searched the web for "manette Xbox One Sarvis". With the real
+    name back in place the downstream prompts recognise it as the assistant's name.
+    """
+    primary = unicodedata.normalize("NFC", (wake_word or "").strip())
+    key = primary.casefold()
+    if not text or not key or any(char.isspace() for char in key):
+        return text
+    display = primary[:1].upper() + primary[1:]
+
+    def fix(match: "re.Match[str]") -> str:
+        token = match.group(0)
+        low = token.casefold()
+        if low == key or len(low) > len(key) + 1 or len(low) < max(3, len(key) - 2):
+            return token
+        if difflib.SequenceMatcher(a=key, b=low).ratio() >= fuzzy_ratio:
+            return display
+        return token
+
+    return re.sub(r"\w+", fix, unicodedata.normalize("NFC", text))

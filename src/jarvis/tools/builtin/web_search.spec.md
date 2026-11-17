@@ -165,7 +165,12 @@ answer, the tool walks a fallback chain before giving up:
    cascade fetcher used for DDG so rank preference and the untrusted
    fence are preserved. Free tier: 2,000 queries/month; Brave is a paid
    dependency, so it is never auto-enabled.
-2. **Wikipedia** (zero-config, on by default). Runs when
+2. **Metasearch** (keyless, optional `ddgs` package). Queries several
+   engines in parallel (`backend="auto"`) with the region derived from the
+   utterance language. Results feed the same cascade fetcher (4 s cap); if
+   no page can be read, the engines' snippets become the content, still
+   inside the untrusted fence. Skipped silently when `ddgs` is missing.
+3. **Wikipedia** (zero-config, on by default). Runs when
    `wikipedia_fallback_enabled` is True. Uses the host matching the
    ISO-639-1 language Whisper auto-detected for the current utterance
    (`context.language`) — falls back to English when the code is missing

@@ -137,7 +137,7 @@ def test_early_plan_transcribes_the_audio_so_far_and_prefetches(monkeypatch):
         _samplerate=16000, _stream_samplerate=16000,
         state_manager=types.SimpleNamespace(is_hot_window_active=lambda: False),
         _transcribe_audio=lambda audio: ("Jarvis, quelle heure est-il ?", "fr", ()),
-        _leading_wake_word=lambda text, speaking: True,
+        _leading_wake_word=lambda text, speaking: True, _canonical_query=lambda text: text,
         _start_plan_prefetch=lambda q, lang, loose=False: started.append((q, lang, loose)))
     VoiceListener._start_early_plan(me, 20)
     for t in th.enumerate():

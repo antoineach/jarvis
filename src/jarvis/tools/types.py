@@ -13,3 +13,6 @@ class ToolExecutionResult:
     missing_context: Optional[str] = None
     resource_references: tuple[dict[str, Any], ...] = ()
     result_metadata: Optional[dict[str, Any]] = None
+    # Nothing was retrieved (e.g. every search provider failed): the payload is a short
+    # instruction to the reply model, which a fact-note digest would only garble, slowly.
+    skip_digest: bool = False

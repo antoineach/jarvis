@@ -165,6 +165,7 @@
   "timer_announcement": "{label}: time's up!",
   "brave_search_api_key": "",
   "wikipedia_fallback_enabled": true,
+  "web_metasearch_enabled": true,
   "background_tasks_enabled": false,
   "document_search_enabled": false,
   "document_search_paths": [],

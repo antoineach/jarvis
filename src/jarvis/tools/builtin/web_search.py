@@ -294,6 +294,43 @@ def _brave_search(query: str, api_key: str, count: int = 5
         return []
 
 
+_DDGS_REGIONS = {"en": "us-en", "fr": "fr-fr", "de": "de-de", "es": "es-es", "it": "it-it",
+                 "nl": "nl-nl", "pt": "pt-pt", "pl": "pl-pl", "ja": "jp-jp", "zh": "cn-zh",
+                 "ru": "ru-ru", "ko": "kr-kr"}
+
+
+def _metasearch(query: str, lang: str, timeout: float, count: int = 5
+                ) -> List[Tuple[str, str, str]]:
+    """Keyless fallback through the ``ddgs`` metasearch library: (title, url, snippet).
+
+    ``ddgs`` queries several engines (Bing, Brave, Google, Mojeek, Yahoo…) in parallel and merges
+    the results, so one engine serving a bot challenge — DuckDuckGo lite does this regularly from
+    home connections — no longer leaves the assistant with nothing. Optional dependency: returns
+    an empty list when it is not installed or every engine fails.
+    """
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        debug_log("ddgs not installed: no metasearch fallback", "web")
+        return []
+    try:
+        region = _DDGS_REGIONS.get((lang or "").split("-")[0].lower(), "wt-wt")
+        rows = DDGS(timeout=max(1, int(timeout))).text(query, region=region, max_results=count,
+                                                      backend="auto")
+    except Exception as e:
+        debug_log(f"metasearch failed: {e}", "web")
+        return []
+    out: List[Tuple[str, str, str]] = []
+    for r in rows or []:
+        url = str(r.get("href") or r.get("url") or "").strip()
+        title = str(r.get("title") or "").strip()
+        if url and title and _is_public_url(url):
+            out.append((title, url, str(r.get("body") or "").strip()))
+        if len(out) >= count:
+            break
+    return out
+
+
 # Language codes whose primary script is NOT Latin. When Whisper returns
 # one of these for a query whose letters are overwhelmingly ASCII/Latin,
 # we treat it as a misdetection and fall back to English rather than
@@ -706,7 +743,7 @@ class WebSearchTool(Tool):
             # the same fetched_content / result_urls state the envelope
             # selection below reads, so a success looks identical to a
             # successful DDG fetch downstream.
-            used_source: Optional[str] = None  # "brave" | "wikipedia" | None
+            used_source: Optional[str] = None  # "brave" | "metasearch" | "wikipedia" | None
             need_fallback = (
                 not instant_results
                 and not fetched_content
@@ -742,6 +779,38 @@ class WebSearchTool(Tool):
                                 "Brave returned results but no fetch succeeded",
                                 "web",
                             )
+
+            # Keyless metasearch (several engines at once) before the narrow Wikipedia
+            # fallback. The engines' own snippets are kept: when no page can be read in
+            # time they still carry the facts (prices, dates, scores) a voice answer needs.
+            if (getattr(cfg, "web_metasearch_enabled", False) is True
+                    and not instant_results and not fetched_content
+                    and (ddg_rate_limited or not result_urls or fetch_attempted_any)
+                    and _budget_left() > 1):
+                context.user_print("🔎 Falling back to metasearch…")
+                rows = _metasearch(search_query, context.language or "en",
+                                   timeout=min(6.0, _budget_left()))
+                if rows:
+                    result_urls = [(t, u) for t, u, _ in rows]
+                    search_results = []
+                    for i, (title, url, snippet) in enumerate(rows, start=1):
+                        search_results.append(f"{i}. **{title}**")
+                        search_results.append(f"   Link: {url}")
+                        if snippet:
+                            search_results.append(f"   {snippet[:300]}")
+                        search_results.append("")
+                    fetch_attempted_any = True
+                    fetched_content = _cascade_fetch(
+                        result_urls[:3],
+                        wall_clock_sec=min(4.0, _budget_left()),
+                        query=search_query,
+                    )
+                    if not fetched_content:
+                        fetched_content = "\n".join(
+                            f"- {t}: {s}" for t, _, s in rows if s) or None
+                    if fetched_content:
+                        used_source = "metasearch"
+                        ddg_rate_limited = False
 
             # Wikipedia: last-resort, runs if we still have no content. The
             # REST summary endpoint is key-free and gives us a curated
@@ -974,6 +1043,8 @@ class WebSearchTool(Tool):
                     context.user_print(
                         "✅ Answered via Wikipedia fallback."
                     )
+                elif used_source == "metasearch":
+                    context.user_print(f"✅ Answered via metasearch ({count_results} results).")
                 elif count_results > 0:
                     context.user_print(f"✅ Found {count_results} results.")
                 else:
@@ -1006,7 +1077,9 @@ class WebSearchTool(Tool):
             except Exception:
                 pass
 
-            return ToolExecutionResult(success=True, reply_text=reply_text)
+            return ToolExecutionResult(
+                success=True, reply_text=reply_text,
+                skip_digest=not (instant_results or fetched_content or result_urls))
         except Exception as search_error:
             debug_log(f"search failed: {search_error}", "web")
             return ToolExecutionResult(
