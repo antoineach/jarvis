@@ -90,3 +90,19 @@ def test_judge_kept_while_speaking_or_when_disabled():
     off = types.SimpleNamespace(cfg=types.SimpleNamespace(wake_word_skips_judge=False))
     assert VoiceListener._leading_wake_word(on, "jarvis, stop", True) is False
     assert VoiceListener._leading_wake_word(off, "jarvis, quelle heure ?", False) is False
+
+
+def test_judge_warms_both_mode_prompts(monkeypatch):
+    from jarvis.listening import intent_judge as ij
+    sent = []
+
+    class B:
+        def chat(self, model, messages, **kw):
+            sent.append((messages[0]["content"], kw["extra_options"]["max_tokens"]))
+            return {"message": {"content": "{}"}}
+    monkeypatch.setattr(ij, "get_llm_backend", lambda cfg: B())
+    j = ij.IntentJudge.__new__(ij.IntentJudge)
+    j.config = types.SimpleNamespace(cfg=None, model="m", timeout_sec=6.0)
+    j._build_system_prompt = lambda hot: f"judge prompt hot={hot}"
+    j.warm_prompts()
+    assert sent == [("judge prompt hot=False", 1), ("judge prompt hot=True", 1)]

@@ -482,3 +482,24 @@ def test_prefetch_plan_only_parks_the_plan_and_has_no_reply_side_effects(mock_co
         engine.run_reply_engine(db, mock_config, None, 'Quelle est la météo ce soir ?', dialogue_memory,
                                 language='fr', quiet=True)
     assert calls == [1]                       # the real reply reused the prefetched plan
+
+
+def test_prewarm_sends_the_reply_prompt_once_and_has_no_side_effects(mock_config, db, dialogue_memory, capsys):
+    from jarvis.reply import engine, planner
+    planner._spec.clear()
+    mock_config.planner_enabled = True
+    chats, tools_run = [], []
+    with patch.object(engine, 'select_tools', return_value=['getWeather', 'stop']), \
+         patch.object(planner, '_call_planner_llm', return_value='getWeather\nReply to the user.'), \
+         patch.object(planner, 'resolve_model', return_value='m'), \
+         patch.object(engine, 'run_tool_with_retries', side_effect=lambda *a, **k: tools_run.append(1)), \
+         patch.object(engine, 'chat_with_messages', side_effect=lambda **kw: chats.append(kw) or
+                      {'message': {'role': 'assistant', 'content': 'x'}}):
+        before = len(dialogue_memory.get_recent_messages()) if dialogue_memory.has_recent_messages() else 0
+        engine.prewarm_reply_cache(db, mock_config, dialogue_memory)
+    assert len(chats) == 1 and chats[0]['extra_options'] == {'max_tokens': 1}
+    assert chats[0]['messages'][0]['role'] == 'system'
+    assert tools_run == []                                   # the planned getWeather never ran
+    assert capsys.readouterr().out == ""
+    after = len(dialogue_memory.get_recent_messages()) if dialogue_memory.has_recent_messages() else 0
+    assert after == before

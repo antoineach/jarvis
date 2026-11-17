@@ -226,6 +226,8 @@ def preset(args, current: dict) -> dict:
         "speculative_planning": True,
         # "Jarvis, ..." is addressed by definition: no intent-judge call for it (~1.5 s saved).
         "wake_word_skips_judge": True,
+        # Cache the reply / planner / judge prompts at startup: the first turn is not cold.
+        "prewarm_prompt_cache": True,
         # Web pages digested in one call instead of 2-3 sequential ones (~1 s per extra call).
         "tool_digest_batch_chars": 6000,
         "memory_write": "off",

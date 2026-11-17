@@ -6,7 +6,9 @@ Handles memory enrichment, tool planning and execution.
 
 from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
+import builtins
 import json
+import threading
 from hashlib import sha256
 from contextlib import closing
 
@@ -1003,12 +1005,42 @@ class _NoWarmProfile(Exception):
     """memory_enrichment_source "none": skip the User/Directives profile."""
 
 
+_engine_tls = threading.local()
+
+
+def print(*args, **kwargs):  # noqa: A001 — module-local: silenced for cache pre-warming threads
+    if getattr(_engine_tls, "silent", False):
+        return
+    builtins.print(*args, **kwargs)
+
+
+def prewarm_reply_cache(db: "Database", cfg, dialogue_memory: "DialogueMemory",
+                        language: Optional[str] = None) -> None:
+    """Fill the local llama-server prompt cache with the reply (and planner) prompt prefixes.
+
+    Measured: the first turn of a session re-reads ~5.7k reply-prompt tokens and ~2k planner
+    tokens cold (3.3 s + 1.6 s on an RTX 2070) while every later turn reuses ~5.5k from cache.
+    Runs the reply preparation silently on a neutral query, forces a reply-only plan (no tool
+    can run), and stops at the first model call after one generated token: nothing is spoken,
+    printed or recorded. Called once from the listener's warm-up when ``prewarm_prompt_cache``.
+    """
+    _engine_tls.silent = True
+    try:
+        run_reply_engine(db, cfg, None, "Bonjour.", dialogue_memory, language=language, quiet=True,
+                         _warm_cache_only=True)
+    except Exception as exc:
+        debug_log(f"prompt cache pre-warm failed (non-fatal): {exc}", "planning")
+    finally:
+        _engine_tls.silent = False
+
+
 def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                     text: str, dialogue_memory: "DialogueMemory",
                     language: Optional[str] = None,
                     quiet: bool = False,
                     speech_context: Optional["SpeechContext"] = None,
-                    *, cancel_event=None, prefetch_plan_only: bool = False) -> Optional[str]:
+                    *, cancel_event=None, prefetch_plan_only: bool = False,
+                    _warm_cache_only: bool = False) -> Optional[str]:
     """
     Main entry point for reply generation.
 
@@ -1282,6 +1314,15 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
         and _query_word_count <= 8
         and getattr(cfg, "planner_enabled", True)
     )
+    if _warm_cache_only:
+        # Pre-warm: let the planner prompt reach its slot, then force a reply-only plan so no
+        # tool can run, whatever the planner answered.
+        try:
+            plan_query(cfg=cfg, query=redacted, dialogue_context=_dialogue_ctx,
+                       transcript_context=transcript_context, tools=_planner_tool_catalog)
+        except Exception:
+            pass
+        _skip_planner = True
     if prefetch_plan_only:
         # Speculative run started by the listener while the intent judge decides: park the plan
         # for the real reply (planner.prefetch_plan) and stop here, before any reply side effect.
@@ -2408,6 +2449,12 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
         # tools API not supported).
         _dump_tools_schema = None if use_text_tools else tools_json_schema
         _chat_model = cfg.llm_chat_model
+        if _warm_cache_only:
+            chat_with_messages(cfg=cfg, messages=messages,
+                               timeout_sec=float(getattr(cfg, 'llm_chat_timeout_sec', 45.0)),
+                               extra_options={"max_tokens": 1}, tools=_dump_tools_schema,
+                               thinking=getattr(cfg, 'llm_thinking_enabled', False))
+            return None
         try:
             llm_resp = chat_with_messages(
                 cfg=cfg,

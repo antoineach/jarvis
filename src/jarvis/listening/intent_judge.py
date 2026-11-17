@@ -391,6 +391,21 @@ Examples:
             timeout=max(self.config.timeout_sec, 60.0),
         )
 
+    def warm_prompts(self) -> None:
+        """Send both judge system prompts (wake-word and hot-window mode) once, generating a
+        single token, so a local server caches them before the first real judgment."""
+        for hot in (False, True):
+            try:
+                get_llm_backend(self.config.cfg).chat(
+                    self.config.model,
+                    [{"role": "system", "content": self._build_system_prompt(hot)},
+                     {"role": "user", "content": "."}],
+                    timeout_sec=max(self.config.timeout_sec, 30.0),
+                    extra_options={"temperature": 0.0, "max_tokens": 1},
+                )
+            except Exception as e:
+                debug_log(f"intent judge prompt pre-warm failed (non-fatal): {e}", "voice")
+
     def judge(
         self,
         segments: List[TranscriptSegment],

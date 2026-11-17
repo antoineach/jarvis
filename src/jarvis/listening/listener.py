@@ -1040,12 +1040,32 @@ class VoiceListener(threading.Thread):
         else:
             debug_log(f"input ignored (no wake word{intent_info}): {text_lower}", "voice")
 
+    def _prewarm_prompt_cache(self) -> None:
+        """Fill the server prompt cache (reply, planner, both judge modes) before "Listening!".
+
+        The first turn otherwise pays every prompt cold. The calls run in parallel on their own
+        llama-server slots and generate one token each; nothing is spoken or recorded.
+        """
+        from ..reply.engine import prewarm_reply_cache
+        t0 = time.time()
+        jobs = [threading.Thread(target=prewarm_reply_cache, daemon=True, name="prewarm-reply",
+                                 args=(self.db, self.cfg, self.dialogue_memory,
+                                       getattr(self.cfg, "whisper_language", None)))]
+        judge = self._intent_judge
+        if judge is not None and getattr(judge, "available", False) and hasattr(judge, "warm_prompts"):
+            jobs.append(threading.Thread(target=judge.warm_prompts, daemon=True, name="prewarm-judge"))
+        for j in jobs:
+            j.start()
+        for j in jobs:
+            j.join(timeout=30.0)
+        print(f"     🔥 Prompt cache pre-warmed in {time.time() - t0:.1f}s", flush=True)
+
     def _leading_wake_word(self, text_lower: str, is_speaking_now: bool) -> bool:
         """``wake_word_skips_judge``: an utterance that opens with the wake word ("Jarvis, ...",
         "salut Jarvis, ...") is addressed to the assistant, so the intent judge (one LLM call,
         ~1.5 s) is skipped and the wake-word path dispatches it. Not while the assistant speaks
         (echo), and only within the first three words (a mention later is not an address)."""
-        if not getattr(self.cfg, "wake_word_skips_judge", False) or is_speaking_now:
+        if getattr(self.cfg, "wake_word_skips_judge", False) is not True or is_speaking_now:
             return False
         import re
         words = re.findall(r"[\w'-]+", text_lower)[:3]
@@ -1071,7 +1091,7 @@ class VoiceListener(threading.Thread):
     def _start_plan_prefetch(self, query: str, language: Optional[str]) -> None:
         """``speculative_planning``: run the reply preparation up to the planner while the intent
         judge decides, so a directed query finds its plan ready (see planner.prefetch_plan)."""
-        if not getattr(self.cfg, "speculative_planning", False) or not query:
+        if getattr(self.cfg, "speculative_planning", False) is not True or not query:
             return
         from ..reply.engine import run_reply_engine
 
@@ -2229,6 +2249,9 @@ class VoiceListener(threading.Thread):
             if still_warming:
                 debug_log("LLM warmup still running after 60s — continuing without", "voice")
                 print("     ⏳ Some model probes are still running; continuing startup.", flush=True)
+
+        if getattr(self.cfg, "prewarm_prompt_cache", False) is True:
+            self._prewarm_prompt_cache()
 
         # Audio parameters
         frame_ms = int(getattr(self.cfg, "vad_frame_ms", 20))

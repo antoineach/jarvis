@@ -128,6 +128,7 @@
   "memory_enrichment_source": "all",
   "speculative_planning": false,
   "wake_word_skips_judge": false,
+  "prewarm_prompt_cache": false,
   "persona_style": "butler",
   "memory_write": "all",
   "tool_carryover_max_turns": 2,
