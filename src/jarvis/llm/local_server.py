@@ -19,6 +19,7 @@ import atexit
 import os
 import subprocess
 import sys
+import re
 import time
 import urllib.error
 import urllib.request
@@ -32,7 +33,11 @@ from ..debug import debug_log
 # uses ~10k: reply ~6.5k, judge ~1.3k, planner ~2k): slot 0 keeps the reply prompt between turns,
 # slot 1 the intent judge, slot 2 the other short calls (planner, digests), so none evicts another. With llama-server's default (4 slots, 8k shared) every short call evicted the reply
 # prompt: measured 0 cached tokens on every reply, ~3 s of re-reading per turn.
-DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--jinja"]
+DEFAULT_ARGS = ["-ngl", "99", "-c", "16384", "-np", "3", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "--swa-full", "--jinja"]
+# --swa-full: Gemma-family models (Gemma 4, Nemotron-3.5-Bolt-E4B) use sliding-window attention
+# layers whose default cache only holds the last window, so llama.cpp cannot roll back to a prefix
+# that diverges mid-prompt and re-reads everything (measured: 0 cached tokens while 70% of the reply
+# prompt was identical turn to turn). The full SWA cache is a few hundred MB at 16k for an E4B.
 REPLY_SLOT, JUDGE_SLOT, FAST_SLOT = 0, 1, 2
 _pinning = False
 _slots = 1
@@ -134,6 +139,49 @@ def slot_for(kind: str) -> Optional[int]:
     if _slots >= 3:
         return JUDGE_SLOT if kind == "chat" else FAST_SLOT
     return JUDGE_SLOT
+
+
+_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|SWA|prompt eval time|n_past|restored|re-process", re.I)
+_log_pos: dict = {}
+
+
+def report_server_log(name: str = "chat", max_lines: int = 8) -> None:
+    """Echo the llama-server log lines about slots and prompt caching written since the last call.
+
+    Diagnostics for JARVIS_TIMINGS: shows the server's own reason for a cache miss (slot chosen,
+    tokens reused, SWA/checkpoint messages) next to Jarvis's timing lines, no log digging needed.
+    """
+    path = _log_path(f"llama_server_{name}")
+    try:
+        size = path.stat().st_size
+        start = _log_pos.get(name, 0)
+        if size < start:
+            start = 0
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(start)
+            new = f.read()
+            _log_pos[name] = f.tell()
+    except OSError:
+        return
+    lines = [ln.strip() for ln in new.splitlines() if _CACHE_LOG.search(ln)]
+    for ln in lines[-max_lines:]:
+        print(f"     🦙 {ln[-170:]}", flush=True)
+
+
+def report_vram() -> None:
+    """One line of GPU memory use (nvidia-smi), when available."""
+    import shutil
+    smi = shutil.which("nvidia-smi")
+    if not smi:
+        return
+    try:
+        out = subprocess.run([smi, "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=5).stdout.strip().splitlines()
+        used, total = (int(x) for x in out[0].split(","))
+        warn = "  ⚠️ nearly full: Windows may spill to system RAM and slow everything" if used > 0.93 * total else ""
+        print(f"  📊 VRAM {used} / {total} MiB{warn}", flush=True)
+    except Exception:
+        pass
 
 
 def stop_started_servers() -> None:

@@ -45,6 +45,10 @@ def _start_tts_engine(tts) -> None:
     tts.start()
     if tts.enabled:
         print("✅ TTS engine started", flush=True)
+        from .llm import timing as _t
+        if _t.enabled():
+            from .llm.local_server import report_vram
+            report_vram()
     else:
         print("  ⚠️ Speech output unavailable. Check the voice model settings and restart Jarvis.", flush=True)
 

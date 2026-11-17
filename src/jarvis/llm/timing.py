@@ -129,6 +129,13 @@ def timed(kind: str) -> Callable:
                 dt = time.perf_counter() - t0
                 tail = _usage(locals().get("result")) if ok else "  (failed)"
                 print(f"  ⏱️ llm.{kind:<9} {dt:5.2f}s  {who}{tail}", flush=True)
+                if kind != "embed":
+                    try:
+                        from .local_server import _started, report_server_log
+                        if _started:
+                            report_server_log("chat")
+                    except Exception:
+                        pass
         return wrapper
     return deco
 

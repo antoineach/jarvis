@@ -136,3 +136,16 @@ def test_no_pinning_for_single_slot_or_external_server(monkeypatch):
     monkeypatch.setattr(local_server, "_pinning", False)
     assert local_server.slot_for("reply") is None
     assert local_server._parallel(["-c", "8192"]) == 1 and local_server._parallel(["-np", "2"]) == 2
+
+
+def test_server_log_lines_about_caching_are_echoed(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(local_server.Path, "home", lambda: tmp_path)
+    local_server._log_pos.clear()
+    log = local_server._log_path("llama_server_chat")
+    log.write_text("srv  update_slots: id 0 | task 3 | forcing full prompt re-processing due to lack of cache data "
+                   "(likely due to SWA)\nslot print_timing: id 0 | task 3 | eval time = 1 ms\n", encoding="utf-8")
+    local_server.report_server_log("chat")
+    out = capsys.readouterr().out
+    assert "SWA" in out and "eval time = 1 ms" not in out
+    local_server.report_server_log("chat")                 # nothing new: nothing printed
+    assert capsys.readouterr().out == ""

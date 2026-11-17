@@ -23,6 +23,7 @@
     "q8_0",
     "-ctv",
     "q8_0",
+    "--swa-full",
     "--jinja"
   ],
   "llama_server_embedding_model": null,
