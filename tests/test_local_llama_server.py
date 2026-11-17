@@ -149,7 +149,7 @@ def test_server_log_lines_about_caching_are_echoed(tmp_path, monkeypatch, capsys
                    "(likely due to SWA)\nslot print_timing: id 0 | task 3 | eval time = 1 ms\n", encoding="utf-8")
     local_server.report_server_log("chat")
     out = capsys.readouterr().out
-    assert "SWA" in out and "eval time = 1 ms" not in out
+    assert "SWA" in out and "eval time = 1 ms" in out          # decode speed kept (DFlash A/B)
     local_server.report_server_log("chat")                 # nothing new: nothing printed
     assert capsys.readouterr().out == ""
 

@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -152,10 +153,11 @@ def slot_for(kind: str) -> Optional[int]:
     return PLAN_SLOT
 
 
-_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|prompt eval time|n_past|restored|re-process|draft|"
+_CACHE_LOG = re.compile(r"select:|cache|checkpoint|swa|eval time|n_past|restored|re-process|draft|"
                         r"accept|speculative|"
                         r"update_slots|release:|offload|CPU_Mapped|CUDA0 model buffer", re.I)
 _log_pos: dict = {}
+_log_lock = threading.Lock()                     # parallel calls (judge + planner) report concurrently
 
 
 def report_server_log(name: str = "chat", max_lines: int = 10) -> None:
@@ -164,6 +166,11 @@ def report_server_log(name: str = "chat", max_lines: int = 10) -> None:
     Diagnostics for JARVIS_TIMINGS: shows the server's own reason for a cache miss (slot chosen,
     tokens reused, SWA/checkpoint messages) next to Jarvis's timing lines, no log digging needed.
     """
+    with _log_lock:
+        _report_server_log(name, max_lines)
+
+
+def _report_server_log(name: str, max_lines: int) -> None:
     path = _log_path(f"llama_server_{name}")
     try:
         size = path.stat().st_size

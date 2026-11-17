@@ -281,6 +281,10 @@ class Qwen3TTS(_QueuedSpeech):
             except queue.Empty:
                 continue
             if c is None:
+                # End of stream reached while buffering (fast engines finish before playback starts):
+                # hand the marker to the playback loop, which would otherwise wait for it forever
+                # and write silence (measured with Kokoro: the reply after the first one never spoke).
+                pending.append(None)
                 break
             pending.append(c)
         debug_log(f"Qwen3-TTS first audio after {time.time() - t0:.2f}s, buffered {stats['gen'] / sr:.1f}s", "tts")

@@ -2091,7 +2091,10 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                     # instruction — insert it just before the guidance instead
                     # of after it. The guidance is per-reply dynamic anyway,
                     # so this keeps the byte-stable head intact either way.
-                    head, marker, tail = content.partition("\nExact tool-call syntax")
+                    # The tool catalogue and its syntax guidance now sit in the static head (see
+                    # _build_initial_system_message), so the per-minute clock goes after the per-turn
+                    # blocks, just before the closing language reminder when there is one.
+                    head, marker, tail = content.partition("\nReminder: answer in the user's language")
                     if marker:
                         new_content = (
                             f"{head.rstrip()}\n\n[Context: {context_str}]\n\n"

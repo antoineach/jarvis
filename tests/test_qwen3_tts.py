@@ -116,3 +116,22 @@ def test_chunk_size_is_configurable(tmp_path, monkeypatch):
     monkeypatch.setenv("JARVIS_CONFIG_PATH", str(cfg_file))
     assert load_settings().tts_qwen3_chunk == 4
     assert create_tts_engine(engine="qwen3", qwen3={"python": "/x", "chunk": 4}).chunk == 4
+
+
+def test_stream_that_ends_while_buffering_still_finishes(monkeypatch):
+    """A fast engine (Kokoro) delivers everything, end marker included, before playback starts."""
+    chunks = [np.ones(24000, np.float32)]
+    eng = _engine(monkeypatch, chunks, delay=0.0)
+
+    def fake_stream(text):
+        def gen():
+            yield chunks[0]
+            time.sleep(0.2)          # last sentence synthesised while the buffer loop waits on the queue
+        return 24000, gen()
+    monkeypatch.setattr(eng, "_stream", fake_stream)
+    done = []
+    t = threading.Thread(target=lambda: done.append(eng._speak_once(_request("Je vais bien, merci."))), daemon=True)
+    t.start()
+    t.join(timeout=5)
+    assert done == [True], "playback never ended: the end-of-stream marker was lost"
+    assert np.count_nonzero(np.concatenate(FakeOut.instances[0].samples)) == 48000
