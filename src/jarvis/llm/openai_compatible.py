@@ -103,6 +103,17 @@ def _normalise_response(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _direct_kind() -> str:
+    """"plan" for the planner (its long, stable prompt gets its own slot), "direct" otherwise."""
+    f = sys._getframe(2)
+    depth = 0
+    while f is not None and depth < 40:
+        if f.f_code.co_name == "plan_query":
+            return "plan"
+        f, depth = f.f_back, depth + 1
+    return "direct"
+
+
 def _chat_kind() -> str:
     """"reply" for chat calls made by the reply loop, "chat" for the others (intent judge).
 
@@ -201,7 +212,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": False,
         }
         payload.update(self._thinking_fields(thinking))
-        payload.update(self._slot_fields("direct"))
+        payload.update(self._slot_fields(_direct_kind()))
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens is not None:
@@ -262,7 +273,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": True,
         }
         payload.update(self._thinking_fields(thinking))
-        payload.update(self._slot_fields("direct"))
+        payload.update(self._slot_fields(_direct_kind()))
 
         deadline = time.monotonic() + timeout_sec
         try:

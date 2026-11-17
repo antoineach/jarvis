@@ -71,7 +71,12 @@ def test_reply_loop_chats_get_the_reply_slot_even_without_tool_schemas(monkeypat
     def run_reply_engine():
         return backend.chat("m", msgs)
 
+    def plan_query():
+        return backend.direct("m", "sys", "hi")
+
+    monkeypatch.setattr(local_server, "_slots", 4)
     run_reply_engine()
     backend.chat("m", msgs)                 # intent judge path
-    backend.direct("m", "sys", "hi")        # planner path
-    assert sent == [0, 1, 2]
+    plan_query()                            # planner
+    backend.direct("m", "sys", "hi")        # digests, tool resolution
+    assert sent == [0, 1, 2, 3]
