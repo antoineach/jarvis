@@ -82,10 +82,11 @@ def main() -> None:
             pass
 
         def do_GET(self):
+            body = ("providers: " + ",".join(session.get_providers())).encode()
             self.send_response(200)
-            self.send_header("Content-Length", "2")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"ok")
+            self.wfile.write(body)
 
         def _chunk(self, audio) -> None:
             data = np.asarray(audio, dtype=np.float32).reshape(-1).tobytes()

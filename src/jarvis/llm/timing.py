@@ -140,6 +140,22 @@ def timed(kind: str) -> Callable:
     return deco
 
 
+_speech_end = {"t": 0.0}
+
+
+def mark_speech_end(t: float) -> None:
+    """Wall-clock time the user stopped speaking (endpoint time minus the endpoint silence)."""
+    _speech_end["t"] = t
+
+
+def first_audio() -> None:
+    """Print the latency the user perceives: end of their speech -> first audio out."""
+    t = _speech_end["t"]
+    if enabled() and t:
+        print(f"  ⏱️ heard → voice {time.time() - t:5.2f}s  (end of your speech to first audio)", flush=True)
+        _speech_end["t"] = 0.0
+
+
 def stage(name: str, t0: float) -> None:
     """Report a non-LLM stage (speech recognition, first audio, whole turn)."""
     if enabled():

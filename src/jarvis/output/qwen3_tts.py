@@ -179,16 +179,17 @@ class Qwen3TTS(_QueuedSpeech):
                 self._init_error = f"{self._label} server exited:\n{tail}"
                 return False
             try:
-                urllib.request.urlopen(f"http://127.0.0.1:{self._port}/", timeout=2)
+                with urllib.request.urlopen(f"http://127.0.0.1:{self._port}/", timeout=2) as r:
+                    self._server_info = r.read(200).decode("utf-8", "replace")
                 debug_log(f"{self._label} server ready on port {self._port} after {time.time() - t0:.1f}s", "tts")
                 print(f"✅ [TTS] {self._label} ready", flush=True)
-                try:                                  # device actually used, from the server log
-                    for line in self._log_path.read_text(errors="replace").splitlines():
-                        if line.startswith(("providers:", "backend:")):
-                            print(f"     🔊 {self._label} {line}", flush=True)
-                            break
-                except OSError:
-                    pass
+                info = getattr(self, "_server_info", "")
+                if info and info != "ok":             # Kokoro reports the device it runs on
+                    gpu = "CUDA" in info
+                    print(f"     🔊 {self._label} on {'GPU' if gpu else 'CPU'} ({info})", flush=True)
+                    if not gpu and getattr(self, "device", "") != "cpu":
+                        print(f"     ⚠️ {self._label} fell back to the CPU: onnxruntime-gpu could not load CUDA. "
+                              f"Log: {self._log_path}", flush=True)
                 return True
             except Exception:
                 time.sleep(1)
@@ -306,6 +307,7 @@ class Qwen3TTS(_QueuedSpeech):
         if not self._begin_playback(request, est_total):
             return False
         out = open_output(self.output, self.output_latency)
+        _llm_timing.first_audio()
         interrupted, total = False, 0
         try:
             while True:

@@ -166,10 +166,17 @@ def setup_kokoro(device: str) -> dict:
         pip = [str(py), "-m", "pip", "install", "-q", "--upgrade"]
         subprocess.run(pip + ["pip"], check=True)
         subprocess.run(pip + ["kokoro-onnx"], check=True)
-        if device == "gpu":
-            # kokoro-onnx depends on the CPU onnxruntime; the GPU build provides the same module.
-            subprocess.run([str(py), "-m", "pip", "uninstall", "-y", "-q", "onnxruntime"], check=True)
-            subprocess.run(pip + ["onnxruntime-gpu[cuda,cudnn]"], check=True)
+
+    if device == "gpu":
+        # kokoro-onnx depends on the CPU onnxruntime; the GPU build provides the same module. Checked
+        # on every run so an environment that ended up CPU-only is repaired.
+        probe = subprocess.run([str(py), "-c", "import onnxruntime as o; print(o.get_device())"],
+                               capture_output=True, text=True)
+        if "GPU" not in probe.stdout:
+            print("  installing onnxruntime-gpu in the Kokoro environment ...")
+            subprocess.run([str(py), "-m", "pip", "uninstall", "-y", "-q", "onnxruntime"], check=False)
+            subprocess.run([str(py), "-m", "pip", "install", "-q", "--upgrade", "onnxruntime-gpu[cuda,cudnn]"],
+                           check=True)
     model = "kokoro-v1.0.onnx" if device == "gpu" else "kokoro-v1.0.int8.onnx"
     for name in (model, "voices-v1.0.bin"):
         target = home / name
@@ -245,7 +252,7 @@ def preset(args, current: dict) -> dict:
         p.update({"whisper_backend": "parakeet", "whisper_device": args.stt_device,
                   "stt_model": "nemo-canary-1b-v2" if args.stt == "canary" else "nemo-parakeet-tdt-0.6b-v3",
                   "stt_quantization": "int8" if args.stt_device == "cpu" else None})
-    if args.tts == "kokoro" and not args.dry_run:
+    if p["tts_engine"] == "kokoro" and not args.dry_run:      # also repairs an existing env
         p.update(setup_kokoro(args.kokoro_device))
     py = args.tts_python or current.get("tts_qwen3_python") or find_tts_python()
     if py:

@@ -2592,6 +2592,9 @@ class VoiceListener(threading.Thread):
 
         # Track when utterance ends - but don't overwrite global timing yet
         utterance_end_time = time.time()
+        _llm_timing.mark_speech_end(
+            utterance_end_time - int(getattr(self.cfg, "endpoint_silence_ms", 800) or 0) / 1000.0
+            if isinstance(getattr(self.cfg, "endpoint_silence_ms", 800), int) else utterance_end_time)
         utterance_start_time = self.echo_detector._utterance_start_time
 
         if self.cfg.voice_debug:
