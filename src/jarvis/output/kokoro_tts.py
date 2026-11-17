@@ -24,6 +24,7 @@ class KokoroTTS(Qwen3TTS):
     _label = "Kokoro"
     _python_setting = "tts_kokoro_python"
     _start_note = ""
+    _prebuffer = False      # many times faster than real time on GPU: play the first sentence at once
 
     def __init__(self, enabled: bool = True, rate: Optional[int] = None, python: Optional[str] = None,
                  model: Optional[str] = None, voices: Optional[str] = None, voice: str = "ff_siwis",

@@ -215,9 +215,9 @@ def preset(args, current: dict) -> dict:
         "stop_commands": FR_STOP,
         "wake_aliases": sorted(set(current.get("wake_aliases", [])) | set(FR_WAKE_ALIASES)),
         "location_auto_detect": True,
-        # End of speech after 600 ms of silence instead of 800: answers 0.2 s sooner, at the cost of
+        # End of speech after 450 ms of silence instead of 800: answers sooner, at the cost of
         # cutting a long mid-sentence pause.
-        "endpoint_silence_ms": 600,
+        "endpoint_silence_ms": 450,
         # Short-term memory only: the conversation of the session, nothing filed or recalled
         # across sessions (a 4B model mis-files facts and recalls its own wrong answers).
         # Concise household voice agent instead of the dry-witted butler (spoken, tools first).
@@ -228,6 +228,11 @@ def preset(args, current: dict) -> dict:
         "wake_word_skips_judge": True,
         # Cache the reply / planner / judge prompts at startup: the first turn is not cold.
         "prewarm_prompt_cache": True,
+        # Transcribe and plan during the end-of-speech silence; the endpoint then finds it ready.
+        "early_plan_silence_ms": 200,
+        # Follow-ups without the wake word for 10 s after a reply (the intent judge filters
+        # speech not addressed to the assistant).
+        "hot_window_seconds": 10.0,
         # Web pages digested in one call instead of 2-3 sequential ones (~1 s per extra call).
         "tool_digest_batch_chars": 6000,
         "memory_write": "off",

@@ -106,3 +106,41 @@ def test_judge_warms_both_mode_prompts(monkeypatch):
     j._build_system_prompt = lambda hot: f"judge prompt hot={hot}"
     j.warm_prompts()
     assert sent == [("judge prompt hot=False", 1), ("judge prompt hot=True", 1)]
+
+
+def test_early_plan_matches_despite_a_different_transcript_context(cfg, monkeypatch):
+    """The early plan cannot know the final transcript timestamps: matched on query text."""
+    calls = []
+    monkeypatch.setattr(planner, "_call_planner_llm", lambda *a: calls.append(a) or "Reply to the user.")
+    planner.prefetch_plan(cfg, "Salut Jarvis.", "", [], transcript_context='{"end": 1.0}', loose=True)
+    assert planner.plan_query(cfg, "Salut Jarvis.", "", [], transcript_context='{"end": 1.4}') == \
+        ["Reply to the user."]
+    assert len(calls) == 1
+
+
+def test_early_plan_for_other_words_is_not_used(cfg, monkeypatch):
+    calls = []
+    monkeypatch.setattr(planner, "_call_planner_llm", lambda *a: calls.append(a) or "Reply to the user.")
+    planner.prefetch_plan(cfg, "Salut Jarvis", "", [], loose=True)        # user then kept talking
+    planner.plan_query(cfg, "Salut Jarvis, quelle heure est-il ?", "", [])
+    assert len(calls) == 2
+
+
+def test_early_plan_transcribes_the_audio_so_far_and_prefetches(monkeypatch):
+    import threading as th
+
+    import numpy as np
+    from jarvis.listening.listener import VoiceListener
+    started = []
+    me = types.SimpleNamespace(
+        _early_plan_busy=False, tts=None, _utterance_frames=[np.zeros(320, np.float32)] * 40,
+        _samplerate=16000, _stream_samplerate=16000,
+        state_manager=types.SimpleNamespace(is_hot_window_active=lambda: False),
+        _transcribe_audio=lambda audio: ("Jarvis, quelle heure est-il ?", "fr", ()),
+        _leading_wake_word=lambda text, speaking: True,
+        _start_plan_prefetch=lambda q, lang, loose=False: started.append((q, lang, loose)))
+    VoiceListener._start_early_plan(me, 20)
+    for t in th.enumerate():
+        if t.name == "early-plan":
+            t.join(2)
+    assert started == [("Jarvis, quelle heure est-il ?", "fr", True)] and me._early_plan_busy is False

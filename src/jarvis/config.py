@@ -249,6 +249,7 @@ class Settings:
     speculative_planning: bool  # plan while the intent judge runs
     wake_word_skips_judge: bool  # no intent judge when the utterance opens with the wake word
     prewarm_prompt_cache: bool  # fill the local server prompt cache at startup
+    early_plan_silence_ms: int  # plan during the end-of-speech silence (0 = off)
     memory_enrichment_source: str  # "all", "diary", or "graph"
     # Tool-call + tool-result messages from prior replies in the hot window
     # are re-injected into the next turn so follow-ups can reuse them instead
@@ -691,7 +692,8 @@ def get_default_config() -> Dict[str, Any]:
         "memory_enrichment_source": "all",  # "all", "diary", "graph" or "none" (no long-term recall)
         "speculative_planning": False,  # voice: run the planner while the intent judge decides
         "wake_word_skips_judge": False,  # skip the intent judge for "Jarvis, ..." utterances
-        "prewarm_prompt_cache": False,  # startup: cache reply/planner/judge prompts (fast first turn)  # voice: run the planner while the intent judge decides
+        "prewarm_prompt_cache": False,  # startup: cache reply/planner/judge prompts (fast first turn)
+        "early_plan_silence_ms": 0,  # >0 and < endpoint_silence_ms: plan while waiting for end of speech  # voice: run the planner while the intent judge decides
         "persona_style": "butler",  # "butler" (dry-witted) or "home_agent" (concise household voice agent)
         "memory_write": "all",  # "all", "diary" (no extracted facts) or "off" (nothing saved)
         # Tool carryover: cap re-injected prior tool turns + chars per entry.
@@ -1125,6 +1127,7 @@ def load_settings() -> Settings:
         speculative_planning=bool(merged.get("speculative_planning", False)),
         wake_word_skips_judge=bool(merged.get("wake_word_skips_judge", False)),
         prewarm_prompt_cache=bool(merged.get("prewarm_prompt_cache", False)),
+        early_plan_silence_ms=max(0, int(merged.get("early_plan_silence_ms", 0) or 0)),
         tool_carryover_max_turns=tool_carryover_max_turns,
         tool_carryover_per_entry_chars=tool_carryover_per_entry_chars,
         memory_digest_enabled=memory_digest_enabled,

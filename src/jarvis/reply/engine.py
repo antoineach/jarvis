@@ -1040,7 +1040,7 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                     quiet: bool = False,
                     speech_context: Optional["SpeechContext"] = None,
                     *, cancel_event=None, prefetch_plan_only: bool = False,
-                    _warm_cache_only: bool = False) -> Optional[str]:
+                    _warm_cache_only: bool = False, _loose_plan: bool = False) -> Optional[str]:
     """
     Main entry point for reply generation.
 
@@ -1329,7 +1329,7 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
         if not _skip_planner:
             from .planner import prefetch_plan
             prefetch_plan(cfg, redacted, _dialogue_ctx, _planner_tool_catalog,
-                          transcript_context=transcript_context)
+                          transcript_context=transcript_context, loose=_loose_plan)
         return None
     if _skip_planner:
         # Positive signal: no tools, no memory needed. The warm profile

@@ -135,6 +135,9 @@ class Qwen3TTS(_QueuedSpeech):
 
     # Hooks overridden by engines that reuse this streaming client with another server script.
     _label = "Qwen3-TTS"
+    # Adaptive pre-buffer before playback: needed when generation runs near real time (Qwen3 on a
+    # mid-range GPU). Engines far faster than real time (Kokoro on GPU) start on the first chunk.
+    _prebuffer = True
     _python_setting = "tts_qwen3_python"
     _start_note = " (first start captures CUDA graphs)"
 
@@ -179,6 +182,13 @@ class Qwen3TTS(_QueuedSpeech):
                 urllib.request.urlopen(f"http://127.0.0.1:{self._port}/", timeout=2)
                 debug_log(f"{self._label} server ready on port {self._port} after {time.time() - t0:.1f}s", "tts")
                 print(f"✅ [TTS] {self._label} ready", flush=True)
+                try:                                  # device actually used, from the server log
+                    for line in self._log_path.read_text(errors="replace").splitlines():
+                        if line.startswith(("providers:", "backend:")):
+                            print(f"     🔊 {self._label} {line}", flush=True)
+                            break
+                except OSError:
+                    pass
                 return True
             except Exception:
                 time.sleep(1)
@@ -266,7 +276,7 @@ class Qwen3TTS(_QueuedSpeech):
         pending, first_s = [first], len(first) / sr
         est_total = _estimate_tts_duration(request.text, self.rate or 160)   # cloned voices speak ~160 WPM
         # Adaptive buffer: wait until the audio already generated covers the remaining generation time.
-        while not stats["done"] and not self._should_interrupt.is_set():
+        while self._prebuffer and not stats["done"] and not self._should_interrupt.is_set():
             el = time.time() - stats["t_first"]
             gen_s = stats["gen"] / sr
             # Speed is measured over 1.2 chunks (0.5 s minimum): 0.8 s with the default 667 ms

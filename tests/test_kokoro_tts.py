@@ -45,3 +45,41 @@ def test_server_sentence_splitting_merges_short_pieces():
     spec.loader.exec_module(m)
     assert m.sentences("Oui. Il fait quinze degrés à Pessac. Pluie ce soir.") == [
         "Oui. Il fait quinze degrés à Pessac.", "Pluie ce soir."]
+
+
+def test_kokoro_plays_the_first_sentence_without_prebuffering(monkeypatch):
+    import threading
+    import time
+
+    import numpy as np
+
+    from jarvis.output import qwen3_tts
+    from jarvis.output.tts import SpeechRequest
+    writes = []
+
+    class Out:
+        def __init__(self, mode, latency):
+            pass
+
+        def write(self, x):
+            writes.append(time.time())
+
+        def close(self, abort=False):
+            pass
+    monkeypatch.setattr(qwen3_tts, "open_output", Out)
+    k = KokoroTTS(python="/x", model="/m", voices="/v")
+
+    def stream(text):
+        def gen():
+            yield np.ones(24000, np.float32)
+            time.sleep(1.0)                      # second sentence still being synthesised
+            yield np.ones(24000, np.float32)
+        return 24000, gen()
+    monkeypatch.setattr(k, "_stream", stream)
+    monkeypatch.setattr(k, "_begin_playback", lambda r, d: True)
+    t0 = time.time()
+    th = threading.Thread(target=lambda: k._speak_once(SpeechRequest("A. B.", None, None, None, lambda r: None)),
+                          daemon=True)
+    th.start()
+    th.join(5)
+    assert writes and writes[0] - t0 < 0.3       # Qwen3 would wait for its speed estimate first

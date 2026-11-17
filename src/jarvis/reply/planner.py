@@ -484,7 +484,8 @@ def plan_query(
     system_prompt = _PROMPT_TEMPLATE.format(max_steps=MAX_STEPS)
     user_content = _build_user_message(query, dialogue_context, tools, transcript_context)
 
-    speculative = _take_speculative(model, system_prompt, user_content)
+    speculative = _take_speculative(model, system_prompt, user_content,
+                                    _loose_key(model, query, dialogue_context, tools))
     if speculative is not None:
         try:
             raw = speculative.result(timeout=effective_timeout + 5.0)
@@ -558,17 +559,26 @@ def _spec_key(model, system_prompt: str, user_content: str) -> str:
     return hashlib.sha256(f"{model}\x00{system_prompt}\x00{user_content}".encode("utf-8")).hexdigest()
 
 
-def _take_speculative(model, system_prompt: str, user_content: str):
+def _loose_key(model, query: str, dialogue_context: str, tools) -> str:
+    """Early plans (computed during the end-of-utterance silence) cannot know the final transcript
+    timestamps, so they are matched on query text, dialogue and tool catalogue only."""
+    return "loose:" + hashlib.sha256(
+        f"{model}\x00{query.strip()}\x00{dialogue_context}\x00{list(tools)!r}".encode("utf-8")).hexdigest()
+
+
+def _take_speculative(model, system_prompt: str, user_content: str, loose_key: str = ""):
     now = time.monotonic()
     with _spec_lock:
         for k in [k for k, (t, _) in _spec.items() if now - t > _SPEC_TTL_S]:
             _spec.pop(k, None)
         entry = _spec.pop(_spec_key(model, system_prompt, user_content), None)
+        if entry is None and loose_key:
+            entry = _spec.pop(loose_key, None)
     return entry[1] if entry else None
 
 
 def prefetch_plan(cfg, query: str, dialogue_context: str, tools: Sequence[Tuple[str, str]], *,
-                  transcript_context: str = "") -> None:
+                  transcript_context: str = "", loose: bool = False) -> None:
     """Compute the plan for these exact inputs now (blocking) and park it for ``plan_query``."""
     if not query or len(query.strip()) < MIN_QUERY_CHARS or not getattr(cfg, "planner_enabled", True):
         return
@@ -577,7 +587,7 @@ def prefetch_plan(cfg, query: str, dialogue_context: str, tools: Sequence[Tuple[
         return
     system_prompt = _PROMPT_TEMPLATE.format(max_steps=MAX_STEPS)
     user_content = _build_user_message(query, dialogue_context, tools, transcript_context)
-    key = _spec_key(model, system_prompt, user_content)
+    key = _loose_key(model, query, dialogue_context, tools) if loose else _spec_key(model, system_prompt, user_content)
     fut: Future = Future()
     with _spec_lock:
         if key in _spec:

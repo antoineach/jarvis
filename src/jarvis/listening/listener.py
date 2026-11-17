@@ -466,6 +466,8 @@ class VoiceListener(threading.Thread):
         self._slow_transcription_warned = False
         self.transcribe_lock = threading.Lock()  # Shared lock for Whisper model access
         self._nemo_stt = None  # Parakeet/Canary engine when whisper_backend == "parakeet"
+        self._early_plan_busy = False
+        self._early_plan_query: Optional[str] = None
         self._audio_q: queue.Queue = queue.Queue(maxsize=64)
         self._transcription_jobs_q: queue.Queue = queue.Queue(maxsize=8)
         self._transcription_results_q: queue.Queue = queue.Queue(maxsize=8)
@@ -1060,6 +1062,41 @@ class VoiceListener(threading.Thread):
             j.join(timeout=30.0)
         print(f"     🔥 Prompt cache pre-warmed in {time.time() - t0:.1f}s", flush=True)
 
+    def _start_early_plan(self, frame_ms: int) -> None:
+        """``early_plan_silence_ms``: plan during the end-of-utterance silence.
+
+        The endpoint waits ``endpoint_silence_ms`` of silence before an utterance counts as
+        finished. After the shorter ``early_plan_silence_ms`` the audio so far is transcribed in the
+        background and, when it would be dispatched (opens with the wake word, or hot window), the
+        planner runs on it. If the user does not resume, the real query finds its plan ready
+        (planner prefetch matched on query text, dialogue and tools); if they resume, the plan
+        simply expires. Never while the assistant speaks.
+        """
+        if np is None or self._early_plan_busy or (self.tts is not None and self.tts.is_speaking()):
+            return
+        frames = list(self._utterance_frames)
+        if len(frames) * frame_ms < 500:
+            return
+        hot = bool(self.state_manager.is_hot_window_active())
+        self._early_plan_busy = True
+
+        def run():
+            try:
+                audio = np.concatenate(frames, axis=0).flatten()
+                stream_rate = getattr(self, "_stream_samplerate", self._samplerate)
+                if stream_rate != self._samplerate:
+                    audio = _resample(audio, stream_rate, self._samplerate)
+                text, language, _ = self._transcribe_audio(audio)
+                text_lower = (text or "").strip().lower()
+                if text_lower and (hot or self._leading_wake_word(text_lower, False)):
+                    self._early_plan_query = text.strip()
+                    self._start_plan_prefetch(text.strip(), language, loose=True)
+            except Exception as exc:
+                debug_log(f"early plan failed (non-fatal): {exc}", "planning")
+            finally:
+                self._early_plan_busy = False
+        threading.Thread(target=run, name="early-plan", daemon=True).start()
+
     def _leading_wake_word(self, text_lower: str, is_speaking_now: bool) -> bool:
         """``wake_word_skips_judge``: an utterance that opens with the wake word ("Jarvis, ...",
         "salut Jarvis, ...") is addressed to the assistant, so the intent judge (one LLM call,
@@ -1088,18 +1125,20 @@ class VoiceListener(threading.Thread):
             assistant_names=(self.cfg.wake_word, *self.cfg.wake_aliases),
         )
 
-    def _start_plan_prefetch(self, query: str, language: Optional[str]) -> None:
+    def _start_plan_prefetch(self, query: str, language: Optional[str], loose: bool = False) -> None:
         """``speculative_planning``: run the reply preparation up to the planner while the intent
         judge decides, so a directed query finds its plan ready (see planner.prefetch_plan)."""
-        if getattr(self.cfg, "speculative_planning", False) is not True or not query:
+        if not query or (getattr(self.cfg, "speculative_planning", False) is not True and not loose):
             return
+        if not loose and query.strip() == getattr(self, "_early_plan_query", None):
+            return                                   # already planned during the end-of-speech silence
         from ..reply.engine import run_reply_engine
 
         def run():
             try:
                 run_reply_engine(self.db, self.cfg, None, query, self.dialogue_memory,
                                  language=language, speech_context=self._capture_speech_context(query),
-                                 quiet=True, prefetch_plan_only=True)
+                                 quiet=True, prefetch_plan_only=True, _loose_plan=loose)
             except Exception as exc:
                 debug_log(f"plan prefetch failed (non-fatal): {exc}", "planning")
         threading.Thread(target=run, name="plan-prefetch", daemon=True).start()
@@ -2449,6 +2488,9 @@ class VoiceListener(threading.Thread):
         tts_max_utt_ms = int(getattr(self.cfg, "tts_max_utterance_ms", 3000))
         pre_roll_max_frames = max(1, int(pre_roll_ms / frame_ms))
         endpoint_silence_frames = max(1, int(endpoint_silence_ms / frame_ms))
+        early_ms = int(getattr(self.cfg, "early_plan_silence_ms", 0) or 0) if isinstance(
+            getattr(self.cfg, "early_plan_silence_ms", 0), int) else 0
+        early_frames = max(1, int(early_ms / frame_ms)) if 0 < early_ms < endpoint_silence_ms else 0
         normal_max_utt_frames = max(1, int(max_utt_ms / frame_ms))
         tts_max_utt_frames = max(1, int(tts_max_utt_ms / frame_ms))
         while not self._should_stop:
@@ -2523,6 +2565,8 @@ class VoiceListener(threading.Thread):
                             self._silence_frames = 0
                         else:
                             self._silence_frames += 1
+                            if early_frames and self._silence_frames == early_frames:
+                                self._start_early_plan(frame_ms)
                     if self.is_speech_active:
                         # Bound continuous speech as well as silent endpoints.
                         current_max_frames = tts_max_utt_frames if (self.tts and self.tts.is_speaking()) else normal_max_utt_frames
