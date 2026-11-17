@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 import json
+import sys
 import time
 import requests
 
@@ -100,6 +101,22 @@ def _normalise_response(data: Dict[str, Any]) -> Dict[str, Any]:
             return normalised
 
     return data
+
+
+def _chat_kind() -> str:
+    """"reply" for chat calls made by the reply loop, "chat" for the others (intent judge).
+
+    Decided from the call stack, not from the payload: with small models the reply loop
+    describes its tools inside the system prompt instead of sending tool schemas, so a payload
+    test sent replies to the judge's slot and the two evicted each other (0 cached tokens).
+    """
+    f = sys._getframe(2)
+    depth = 0
+    while f is not None and depth < 60:
+        if f.f_code.co_name == "run_reply_engine":
+            return "reply"
+        f, depth = f.f_back, depth + 1
+    return "chat"
 
 
 class OpenAICompatibleBackend(LLMBackend):
@@ -349,7 +366,8 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": False,
         }
         payload.update(self._thinking_fields(thinking))
-        payload.update(self._slot_fields("chat"))
+        kind = _chat_kind()
+        payload.update(self._slot_fields(kind))
         if extra_options and isinstance(extra_options, dict):
             # ``temperature``, ``max_tokens``, ``top_p`` etc. live at the
             # payload root in the OpenAI shape, not under an ``options``
@@ -370,8 +388,7 @@ class OpenAICompatibleBackend(LLMBackend):
                     payload[key] = value
         if tools and isinstance(tools, list) and len(tools) > 0:
             payload["tools"] = tools
-            payload.update(self._slot_fields("reply"))
-        prefix_report(f"chat:{bool(payload.get('tools'))}", tools, sanitised,
+        prefix_report(f"chat:{kind}", tools, sanitised,
                       render=lambda: self._apply_template(sanitised, payload.get("tools"),
                                                           payload.get("chat_template_kwargs")))
 

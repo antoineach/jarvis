@@ -999,6 +999,10 @@ def _build_enrichment_context_hint(cfg, recent_messages: list) -> Optional[str]:
     return "\n\n".join(parts) if parts else None
 
 
+class _NoWarmProfile(Exception):
+    """memory_enrichment_source "none": skip the User/Directives profile."""
+
+
 def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                     text: str, dialogue_memory: "DialogueMemory",
                     language: Optional[str] = None,
@@ -1357,6 +1361,8 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
     # invalidate the conversation cache without bootstrapping every turn.
     warm_profile_block = ""
     try:
+        if getattr(cfg, "memory_enrichment_source", "all") == "none":
+            raise _NoWarmProfile()           # short-term memory only: no long-term profile
         from ..memory.graph import GraphMemoryStore
         from ..memory.graph_ops import build_warm_profile, format_warm_profile_block
         with closing(GraphMemoryStore(cfg.db_path, read_only=True)) as _graph_store_warm:
@@ -1392,6 +1398,8 @@ def run_reply_engine(db: "Database", cfg, tts: Optional[Any],
                     dialogue_memory.hot_cache_put(
                         DialogueMemory.WARM_PROFILE_CACHE_KEY, (signature, warm_profile_block),
                     )
+    except _NoWarmProfile:
+        pass
     except Exception as error:
         debug_log(f"warm profile load failed (non-fatal): {error}", "memory")
 
