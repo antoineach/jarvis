@@ -1164,6 +1164,7 @@ def create_tts_engine(
     piper_sentence_silence: float = 0.2,
     # Qwen3-TTS parameters
     qwen3: Optional[dict] = None,
+    kokoro: Optional[dict] = None,
 ):
     """Factory function to create the appropriate TTS engine.
 
@@ -1172,6 +1173,9 @@ def create_tts_engine(
     - "chatterbox": AI voice with emotion control (requires PyTorch)
     - "qwen3": Qwen3-TTS on a local GPU, voice cloning, streaming playback (separate Python env)
     """
+    if engine.lower() == "kokoro":
+        from .kokoro_tts import KokoroTTS
+        return KokoroTTS(enabled=enabled, rate=rate, **(kokoro or {}))
     if engine.lower() == "qwen3":
         from .qwen3_tts import Qwen3TTS
         return Qwen3TTS(enabled=enabled, rate=rate, **(qwen3 or {}))

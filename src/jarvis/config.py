@@ -164,6 +164,12 @@ class Settings:
     tts_qwen3_backend: str  # "torch" (CUDA graphs) or "ggml" (experimental)
     tts_qwen3_output: str  # "auto" (pacat under WSL), "pulse" or "portaudio"
     tts_qwen3_chunk: int  # codec steps per streamed chunk (12 Hz: 8 = 667 ms)
+    tts_kokoro_python: Optional[str]  # Python of the Kokoro environment (kokoro-onnx)
+    tts_kokoro_model: Optional[str]  # kokoro-v1.0.onnx (GPU) or kokoro-v1.0.int8.onnx (CPU)
+    tts_kokoro_voices: Optional[str]  # voices-v1.0.bin
+    tts_kokoro_voice: str  # ff_siwis for French
+    tts_kokoro_lang: str  # espeak-ng code, e.g. fr-fr
+    tts_kokoro_device: str  # auto, cuda or cpu
 
     # Piper TTS
     tts_piper_model_path: str | None  # Path to .onnx voice model
@@ -598,6 +604,13 @@ def get_default_config() -> Dict[str, Any]:
         "tts_qwen3_backend": "torch",
         "tts_qwen3_output": "auto",  # "auto" (pacat under WSL), "pulse" or "portaudio"
         "tts_qwen3_chunk": 8,  # codec steps per chunk: smaller = earlier first audio, more overhead
+        # Kokoro-82M (tts_engine "kokoro"): fast, fixed voices, separate env (kokoro-onnx needs numpy 2)
+        "tts_kokoro_python": None,
+        "tts_kokoro_model": None,
+        "tts_kokoro_voices": None,
+        "tts_kokoro_voice": "ff_siwis",
+        "tts_kokoro_lang": "fr-fr",
+        "tts_kokoro_device": "auto",
 
         # Piper TTS
         "tts_piper_model_path": None,  # Path to .onnx voice model
@@ -809,7 +822,7 @@ def load_settings() -> Settings:
     use_stdin = bool(merged.get("use_stdin", False))
     tts_enabled = bool(merged.get("tts_enabled", True))
     tts_engine = str(merged.get("tts_engine", "piper")).lower()
-    if tts_engine not in ("piper", "chatterbox", "qwen3"):
+    if tts_engine not in ("piper", "chatterbox", "qwen3", "kokoro"):
         tts_engine = "piper"  # Default to piper if invalid value
     tts_voice_val = merged.get("tts_voice")
     tts_voice = None if tts_voice_val in (None, "", "null") else str(tts_voice_val)
@@ -843,6 +856,9 @@ def load_settings() -> Settings:
     if tts_qwen3_output not in ("auto", "pulse", "portaudio"):
         tts_qwen3_output = "auto"
     tts_qwen3_chunk = min(24, max(2, int(merged.get("tts_qwen3_chunk", 8) or 8)))
+    tts_kokoro_device = str(merged.get("tts_kokoro_device", "auto")).lower()
+    if tts_kokoro_device not in ("auto", "cuda", "cpu"):
+        tts_kokoro_device = "auto"
 
     # Piper TTS settings
     tts_piper_model_path = _expand_path(merged.get("tts_piper_model_path"))
@@ -1027,6 +1043,12 @@ def load_settings() -> Settings:
         tts_qwen3_backend=tts_qwen3_backend,
         tts_qwen3_output=tts_qwen3_output,
         tts_qwen3_chunk=tts_qwen3_chunk,
+        tts_kokoro_python=(str(merged.get("tts_kokoro_python") or "").strip() or None),
+        tts_kokoro_model=(str(merged.get("tts_kokoro_model") or "").strip() or None),
+        tts_kokoro_voices=(str(merged.get("tts_kokoro_voices") or "").strip() or None),
+        tts_kokoro_voice=str(merged.get("tts_kokoro_voice") or "ff_siwis"),
+        tts_kokoro_lang=str(merged.get("tts_kokoro_lang") or "fr-fr"),
+        tts_kokoro_device=tts_kokoro_device,
 
         # Piper TTS
         tts_piper_model_path=tts_piper_model_path,

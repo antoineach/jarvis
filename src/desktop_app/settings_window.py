@@ -62,6 +62,7 @@ CATEGORIES = [
     ("piper", "🎵 Piper TTS"),
     ("chatterbox", "🎭 Chatterbox TTS"),
     ("qwen3", "🎙️ Qwen3-TTS"),
+    ("kokoro", "⚡ Kokoro TTS"),
     ("voice_input", "🎤 Voice Input"),
     ("wake", "👂 Wake Word"),
     ("whisper", "🗣️ Speech Recognition"),
@@ -184,7 +185,8 @@ def _build_field_metadata() -> List[FieldMeta]:
       "tts", "bool")
     f("tts_engine", "TTS Engine", "Speech synthesis engine",
       "tts", "choice", choices=[("piper", "Piper (Neural)"), ("chatterbox", "Chatterbox (Voice Cloning)"),
-               ("qwen3", "Qwen3-TTS (GPU, Voice Cloning, Streaming)")])
+               ("qwen3", "Qwen3-TTS (GPU, Voice Cloning, Streaming)"),
+               ("kokoro", "Kokoro-82M (fast, fixed voices)")])
     f("tts_rate", "Speech Rate", "Words per minute (200 = normal)",
       "tts", "int", min_val=80, max_val=400, step=10, suffix="WPM", nullable=True)
 
@@ -222,6 +224,18 @@ def _build_field_metadata() -> List[FieldMeta]:
     f("tts_chatterbox_audio_prompt", "Voice Clone Audio",
       "Path to audio file for voice cloning (leave empty to disable)",
       "chatterbox", "str", nullable=True)
+
+    # --- Kokoro ---
+    f("tts_kokoro_python", "Python Interpreter",
+      "Python of the separate environment with kokoro-onnx installed",
+      "kokoro", "str", nullable=True)
+    f("tts_kokoro_model", "Model File", "kokoro-v1.0.onnx (GPU) or kokoro-v1.0.int8.onnx (CPU)",
+      "kokoro", "str", nullable=True)
+    f("tts_kokoro_voices", "Voices File", "voices-v1.0.bin", "kokoro", "str", nullable=True)
+    f("tts_kokoro_voice", "Voice", "ff_siwis is the only French voice", "kokoro", "str")
+    f("tts_kokoro_lang", "Language", "espeak-ng code, e.g. fr-fr", "kokoro", "str")
+    f("tts_kokoro_device", "Device", "Where the model runs", "kokoro", "choice",
+      choices=[("auto", "Auto (GPU if available)"), ("cuda", "GPU"), ("cpu", "CPU")])
 
     # --- Qwen3-TTS ---
     f("tts_qwen3_python", "Python Interpreter",

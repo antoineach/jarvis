@@ -1088,6 +1088,10 @@ def _run_daemon(smoke_test: bool = False) -> None:
                "size": cfg.tts_qwen3_size, "language": cfg.tts_qwen3_language,
                "backend": cfg.tts_qwen3_backend, "output": cfg.tts_qwen3_output,
                "chunk": cfg.tts_qwen3_chunk},
+        kokoro={"python": cfg.tts_kokoro_python, "model": cfg.tts_kokoro_model,
+                "voices": cfg.tts_kokoro_voices, "voice": cfg.tts_kokoro_voice,
+                "lang": cfg.tts_kokoro_lang, "device": cfg.tts_kokoro_device,
+                "output": cfg.tts_qwen3_output},
     )
     _global_tts_engine = tts  # Expose for face widget speaking animation
     from .tools.builtin.timer import set_ring_handler

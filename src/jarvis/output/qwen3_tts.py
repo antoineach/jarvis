@@ -133,17 +133,18 @@ class Qwen3TTS(_QueuedSpeech):
                 return True, None
             return self._start_server(), self._init_error
 
-    def _start_server(self) -> bool:
-        py = self.python or ""
-        if not py or not Path(py).exists():
-            self._init_error = ("tts_qwen3_python must point to a Python interpreter with faster-qwen3-tts "
-                                f"installed (got {py!r})")
-            return False
+    # Hooks overridden by engines that reuse this streaming client with another server script.
+    _label = "Qwen3-TTS"
+    _python_setting = "tts_qwen3_python"
+    _start_note = " (first start captures CUDA graphs)"
+
+    def _input_error(self) -> Optional[str]:
         if self.mode == "clone" and not (self.audio_prompt_path and Path(self.audio_prompt_path).exists()):
-            self._init_error = f"clone mode needs tts_qwen3_audio_prompt (got {self.audio_prompt_path!r})"
-            return False
-        self._port = _free_port()
-        cmd = [py, str(SERVER_SCRIPT), "--port", str(self._port), "--mode", self.mode, "--size", self.size,
+            return f"clone mode needs tts_qwen3_audio_prompt (got {self.audio_prompt_path!r})"
+        return None
+
+    def _server_cmd(self, py: str, port: int) -> list:
+        cmd = [py, str(SERVER_SCRIPT), "--port", str(port), "--mode", self.mode, "--size", self.size,
                "--language", self.language, "--backend", self.backend, "--chunk", str(self.chunk)]
         if self.mode == "clone":
             cmd += ["--voice", str(self.audio_prompt_path)]
@@ -151,23 +152,37 @@ class Qwen3TTS(_QueuedSpeech):
             cmd += ["--speaker", self.speaker]
         if self.instruct:
             cmd += ["--instruct", self.instruct]
+        return cmd
+
+    def _start_server(self) -> bool:
+        py = self.python or ""
+        if not py or not Path(py).exists():
+            self._init_error = (f"{self._python_setting} must point to the Python interpreter of the "
+                                f"{self._label} environment (got {py!r})")
+            return False
+        err = self._input_error()
+        if err:
+            self._init_error = err
+            return False
+        self._port = _free_port()
+        cmd = self._server_cmd(py, self._port)
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
-        print("🔧 [TTS] Starting Qwen3-TTS server (first start captures CUDA graphs)...", flush=True)
+        print(f"🔧 [TTS] Starting {self._label} server{self._start_note}...", flush=True)
         self._proc = subprocess.Popen(cmd, stdout=open(self._log_path, "w"), stderr=subprocess.STDOUT)
         t0 = time.time()
         while time.time() - t0 < 600:
             if self._proc.poll() is not None:
                 tail = "\n".join(self._log_path.read_text(errors="replace").splitlines()[-15:])
-                self._init_error = f"Qwen3-TTS server exited:\n{tail}"
+                self._init_error = f"{self._label} server exited:\n{tail}"
                 return False
             try:
                 urllib.request.urlopen(f"http://127.0.0.1:{self._port}/", timeout=2)
-                debug_log(f"Qwen3-TTS server ready on port {self._port} after {time.time() - t0:.1f}s", "tts")
-                print("✅ [TTS] Qwen3-TTS ready", flush=True)
+                debug_log(f"{self._label} server ready on port {self._port} after {time.time() - t0:.1f}s", "tts")
+                print(f"✅ [TTS] {self._label} ready", flush=True)
                 return True
             except Exception:
                 time.sleep(1)
-        self._init_error = "Qwen3-TTS server did not become ready within 600 s"
+        self._init_error = f"{self._label} server did not become ready within 600 s"
         return False
 
     def stop(self) -> None:

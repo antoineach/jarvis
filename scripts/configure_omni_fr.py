@@ -150,6 +150,38 @@ def download_llm(quant: str, dest: Path) -> str | None:
     return hf_hub_download(LLM_REPO, files[0], local_dir=str(dest))
 
 
+KOKORO_RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+
+
+def setup_kokoro(device: str) -> dict:
+    """Own venv (kokoro-onnx needs numpy 2), onnxruntime-gpu for the GPU, model files. Idempotent."""
+    import subprocess
+    import urllib.request
+    home = Path.home() / ".local" / "share" / "jarvis" / "kokoro"
+    env = home / "env"
+    py = env / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not py.exists():
+        print(f"  creating the Kokoro environment in {env} ...")
+        subprocess.run([sys.executable, "-m", "venv", str(env)], check=True)
+        pip = [str(py), "-m", "pip", "install", "-q", "--upgrade"]
+        subprocess.run(pip + ["pip"], check=True)
+        subprocess.run(pip + ["kokoro-onnx"], check=True)
+        if device == "gpu":
+            # kokoro-onnx depends on the CPU onnxruntime; the GPU build provides the same module.
+            subprocess.run([str(py), "-m", "pip", "uninstall", "-y", "-q", "onnxruntime"], check=True)
+            subprocess.run(pip + ["onnxruntime-gpu[cuda,cudnn]"], check=True)
+    model = "kokoro-v1.0.onnx" if device == "gpu" else "kokoro-v1.0.int8.onnx"
+    for name in (model, "voices-v1.0.bin"):
+        target = home / name
+        if not target.exists():
+            print(f"  downloading {name} ...")
+            urllib.request.urlretrieve(KOKORO_RELEASE + name, str(target) + ".part")
+            Path(str(target) + ".part").rename(target)
+    return {"tts_kokoro_python": str(py), "tts_kokoro_model": str(home / model),
+            "tts_kokoro_voices": str(home / "voices-v1.0.bin"),
+            "tts_kokoro_device": "auto" if device == "gpu" else "cpu"}
+
+
 def find_tts_python() -> str | None:
     for c in TTS_PYTHON_CANDIDATES:
         p = Path(os.path.expanduser(c))
@@ -164,7 +196,8 @@ def preset(args, current: dict) -> dict:
         # Whisper large-v3 (arXiv 2509.14128), int8 on CPU leaves the GPU to the LLM and the voice.
         "whisper_language": "fr",
         # Speech output: Qwen3-TTS streamed, French.
-        "tts_engine": "qwen3",
+        "tts_engine": ("kokoro" if args.tts == "kokoro" or (args.tts is None and current.get("tts_engine") == "kokoro")
+                       else "qwen3"),
         "tts_qwen3_language": "French",
         "tts_qwen3_size": "0.6B",
         # 8 codec steps (667 ms). Measured on an RTX 2070: 4 made generation slower than real time
@@ -201,6 +234,8 @@ def preset(args, current: dict) -> dict:
         p.update({"whisper_backend": "parakeet", "whisper_device": args.stt_device,
                   "stt_model": "nemo-canary-1b-v2" if args.stt == "canary" else "nemo-parakeet-tdt-0.6b-v3",
                   "stt_quantization": "int8" if args.stt_device == "cpu" else None})
+    if args.tts == "kokoro" and not args.dry_run:
+        p.update(setup_kokoro(args.kokoro_device))
     py = args.tts_python or current.get("tts_qwen3_python") or find_tts_python()
     if py:
         p["tts_qwen3_python"] = py
@@ -255,6 +290,11 @@ def preset(args, current: dict) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--tts", choices=["qwen3", "kokoro"], default=None,
+                    help="qwen3 (cloned voice, emotion) or kokoro (much faster, one fixed French voice); "
+                         "default: keep the current engine")
+    ap.add_argument("--kokoro-device", choices=["gpu", "cpu"], default="gpu",
+                    help="kokoro on the GPU (~0.3 GB VRAM, fastest) or the CPU (int8 model)")
     ap.add_argument("--voice", help="audio file of the voice to clone (wav/mp3/flac, 5-15 s, one speaker)")
     ap.add_argument("--speaker", help="built-in Qwen3 voice instead of cloning (e.g. vivian, serena, ryan)")
     ap.add_argument("--tts-python", help="python of the Qwen3-TTS environment (auto-detected)")
