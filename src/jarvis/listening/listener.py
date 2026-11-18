@@ -70,6 +70,29 @@ class _CapturedAudio:
     generation: int
 
 
+class _SpeechSegments:
+    """Text of the parts of the current utterance already transcribed during its pauses.
+
+    Parakeet is not a streaming model, but an utterance is cut by natural pauses. Each pause of
+    ``early_plan_silence_ms`` transcribes only the audio since the previous one, in the
+    background while the user goes on or stays silent. At the endpoint only the remaining tail is
+    transcribed — nothing at all when no speech followed the last pause — so speech recognition
+    mostly leaves the critical path. Cuts fall in silence, never inside a word.
+    """
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.committed = 0                 # utterance frames covered by ``texts``
+        self.texts: list[str] = []
+        self.language: Optional[str] = None
+        self.pending: Optional[threading.Event] = None
+        self.failed = False
+
+    def text(self) -> str:
+        with self.lock:
+            return " ".join(t for t in self.texts if t).strip()
+
+
 @dataclass(frozen=True)
 class _TranscriptionJob:
     audio: Any
@@ -79,6 +102,10 @@ class _TranscriptionJob:
     capture_generation: int
     captured_during_tts: bool
     captured_tts_start_time: float
+    # Incremental speech recognition (Parakeet): the utterance's voiced frames (pauses are not
+    # kept) and its segments already transcribed during those pauses.
+    frames: Any = None
+    segments: Optional[_SpeechSegments] = None
 
 
 @dataclass(frozen=True)
@@ -468,6 +495,7 @@ class VoiceListener(threading.Thread):
         self._nemo_stt = None  # Parakeet/Canary engine when whisper_backend == "parakeet"
         self._early_plan_busy = False
         self._early_plan_query: Optional[str] = None
+        self._segments = _SpeechSegments()
         self._audio_q: queue.Queue = queue.Queue(maxsize=64)
         self._transcription_jobs_q: queue.Queue = queue.Queue(maxsize=8)
         self._transcription_results_q: queue.Queue = queue.Queue(maxsize=8)
@@ -1097,6 +1125,90 @@ class VoiceListener(threading.Thread):
                 self._early_plan_busy = False
         threading.Thread(target=run, name="early-plan", daemon=True).start()
 
+    def _incremental_stt(self) -> bool:
+        """``incremental_stt``: transcribe each pause-delimited part during the utterance (Parakeet)."""
+        return (getattr(self.cfg, "incremental_stt", False) is True
+                and self._whisper_backend == "parakeet" and self._nemo_stt is not None)
+
+    def _frames_audio(self, frames):
+        audio = np.concatenate(frames, axis=0).flatten()
+        stream_rate = getattr(self, "_stream_samplerate", self._samplerate)
+        if stream_rate != self._samplerate:
+            audio = _resample(audio, stream_rate, self._samplerate)
+        return audio
+
+    def _transcribe_segment(self, frame_ms: int) -> None:
+        """At a pause: transcribe the audio since the previous pause, then plan on the text so far.
+
+        Replaces ``_start_early_plan`` for Parakeet. That one transcribed the whole utterance at
+        the pause, and the final transcription then waited for it on the shared model lock before
+        transcribing everything again: speech recognition was paid up to twice on the critical
+        path. Here each part is transcribed once, and the endpoint only adds the tail.
+        """
+        if np is None or (self.tts is not None and self.tts.is_speaking()):
+            return
+        seg = self._segments
+        if seg.pending is not None and not seg.pending.is_set():
+            return               # previous part still running: the next pause or the tail covers this
+        start, end = seg.committed, len(self._utterance_frames)
+        if (end - start) * frame_ms < 300:
+            return
+        frames = list(self._utterance_frames[start:end])
+        hot = bool(self.state_manager.is_hot_window_active())
+        # Continuation of a query being collected ("Jarvis." ... "une minute"): addressed too, and
+        # the dispatched query will be the collected text followed by this utterance.
+        collected = ""
+        try:
+            if self.state_manager.is_collecting() is True:
+                collected = str(self.state_manager.get_pending_query() or "").strip()
+        except Exception:
+            collected = ""
+        done = threading.Event()
+        seg.pending = done
+
+        def run():
+            try:
+                text, language, _ = self._transcribe_audio(self._frames_audio(frames))
+                with seg.lock:
+                    if text and text.strip():
+                        seg.texts.append(text.strip())
+                    seg.language = language or seg.language
+                    seg.committed = end
+            except Exception as exc:
+                seg.failed = True
+                debug_log(f"segment transcription failed (non-fatal): {exc}", "voice")
+            finally:
+                done.set()
+            so_far = seg.text()
+            try:
+                if so_far and not seg.failed and (
+                        hot or collected or self._leading_wake_word(so_far.lower(), False)):
+                    query = f"{collected} {self._canonical_query(so_far)}".strip()
+                    self._early_plan_query = query
+                    self._start_plan_prefetch(query, seg.language, loose=True)
+            except Exception as exc:
+                debug_log(f"early plan failed (non-fatal): {exc}", "planning")
+        threading.Thread(target=run, name="stt-segment", daemon=True).start()
+
+    def _transcribe_job(self, job) -> tuple[str, Optional[str], tuple[LowConfidenceEvent, ...]]:
+        """Final transcript: the segments done during the pauses plus the tail, else everything."""
+        seg, frames = job.segments, job.frames
+        if seg is None or frames is None:
+            return self._transcribe_audio(job.audio)
+        pending = seg.pending
+        if pending is not None:
+            pending.wait(15.0)
+        with seg.lock:
+            usable = not seg.failed and (pending is None or pending.is_set()) and seg.committed > 0
+            committed, prefix, language = seg.committed, " ".join(seg.texts).strip(), seg.language
+        if not usable:
+            return self._transcribe_audio(job.audio)
+        tail = frames[committed:]
+        if not tail:
+            return prefix, language, ()          # nothing said after the last pause: no model call
+        text, tail_language, events = self._transcribe_audio(self._frames_audio(tail))
+        return f"{prefix} {text}".strip(), tail_language or language, events
+
     def _canonical_query(self, text: str) -> str:
         """The query with misheard forms of the assistant name restored ("Sarvis" -> "Jarvis")."""
         try:
@@ -1513,8 +1625,8 @@ class VoiceListener(threading.Thread):
             decode_started = time.monotonic()
             try:
                 _stt_t0 = time.perf_counter()
-                text, language, low_confidence_events = self._transcribe_audio(job.audio)
-                _llm_timing.stage("whisper", _stt_t0)
+                text, language, low_confidence_events = self._transcribe_job(job)
+                _llm_timing.stage("stt (tail)" if job.segments is not None else "whisper", _stt_t0)
             except Exception as exc:
                 debug_log(f"transcription worker error: {exc}", "voice")
                 text, language, low_confidence_events = "", None, ()
@@ -2525,6 +2637,7 @@ class VoiceListener(threading.Thread):
                     self.is_speech_active = False
                     self._silence_frames = 0
                     self._utterance_frames = []
+                    self._segments = _SpeechSegments()
                     self._pre_roll.clear()
                     continue
 
@@ -2557,6 +2670,7 @@ class VoiceListener(threading.Thread):
                             self.echo_detector.track_utterance_timing(utterance_start_time, 0.0)
 
                             # Seed with pre-roll
+                            self._segments = _SpeechSegments()
                             if self._pre_roll:
                                 self._utterance_frames.extend(list(self._pre_roll))
                             self._utterance_frames.append(frame.copy())
@@ -2576,7 +2690,10 @@ class VoiceListener(threading.Thread):
                         else:
                             self._silence_frames += 1
                             if early_frames and self._silence_frames == early_frames:
-                                self._start_early_plan(frame_ms)
+                                if self._incremental_stt():
+                                    self._transcribe_segment(frame_ms)
+                                else:
+                                    self._start_early_plan(frame_ms)
                     if self.is_speech_active:
                         # Bound continuous speech as well as silent endpoints.
                         current_max_frames = tts_max_utt_frames if (self.tts and self.tts.is_speaking()) else normal_max_utt_frames
@@ -2626,10 +2743,14 @@ class VoiceListener(threading.Thread):
             default=0.0,
         )
 
+        utterance_frames = self._utterance_frames
+        segments = self._segments if self._incremental_stt() else None
+
         # Reset state before processing
         self.is_speech_active = False
         self._silence_frames = 0
         self._utterance_frames = []
+        self._segments = _SpeechSegments()
 
         if audio is None or audio.size == 0:
             return
@@ -2670,6 +2791,8 @@ class VoiceListener(threading.Thread):
                 )
             ),
             captured_tts_start_time=self.echo_detector._tts_start_time,
+            frames=utterance_frames if segments is not None else None,
+            segments=segments,
         )
         try:
             self._transcription_jobs_q.put_nowait(job)

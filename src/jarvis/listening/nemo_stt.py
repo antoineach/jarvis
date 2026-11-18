@@ -38,11 +38,30 @@ def _providers(device: str) -> list[str]:
     return ["CPUExecutionProvider"]
 
 
+def _session_options(threads: Optional[int] = None):
+    """CPU sessions that share the processor instead of spinning on it.
+
+    onnxruntime's default worker threads busy-wait between operators, on every core. The LLM
+    server's own threads do the same, and both run at once (the planner starts while speech is
+    still being transcribed), so each slows the other down. Half the logical cores (the physical
+    ones on SMT CPUs) and no spinning.
+    """
+    import os
+    import onnxruntime as ort
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = int(threads or max(2, (os.cpu_count() or 4) // 2))
+    so.inter_op_num_threads = 1
+    so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    so.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    return so
+
+
 class NemoSTT:
     """Small wrapper with the one call the listener needs: 16 kHz float32 audio -> text."""
 
     def __init__(self, model: str = DEFAULT_MODEL, device: str = "auto",
-                 quantization: Optional[str] = None, language: Optional[str] = None, loader=None):
+                 quantization: Optional[str] = None, language: Optional[str] = None, loader=None,
+                 threads: Optional[int] = None):
         if loader is None:
             import onnx_asr
             loader = onnx_asr.load_model
@@ -50,7 +69,14 @@ class NemoSTT:
         self.language = language
         self.providers = _providers(device)
         self.device = "cuda" if "CUDAExecutionProvider" in self.providers else "cpu"
-        self._model = loader(self.model_name, quantization=quantization, providers=self.providers)
+        extra = {}
+        if self.device == "cpu":
+            try:
+                extra["sess_options"] = _session_options(threads)
+            except Exception as e:                    # older onnxruntime: keep its defaults
+                debug_log(f"STT session options unavailable: {e}", "voice")
+        self._model = loader(self.model_name, quantization=quantization, providers=self.providers,
+                             **extra)
         self._needs_language = any(k in self.model_name for k in _LANGUAGE_MODELS)
         debug_log(f"NeMo STT loaded: {self.model_name} on {self.device} (quantization={quantization})", "voice")
 

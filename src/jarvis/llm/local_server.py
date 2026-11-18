@@ -34,7 +34,9 @@ from ..debug import debug_log
 # uses ~10k: reply ~6.5k, judge ~1.3k, planner ~2k): slot 0 keeps the reply prompt between turns,
 # slot 1 the intent judge, slot 2 the other short calls (planner, digests), so none evicts another. With llama-server's default (4 slots, 8k shared) every short call evicted the reply
 # prompt: measured 0 cached tokens on every reply, ~3 s of re-reading per turn.
-DEFAULT_ARGS = ["-ngl", "99", "-c", "24576", "-np", "5", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "--jinja"]
+DEFAULT_ARGS = ["-ngl", "99", "-c", "24576", "-np", "5", "--kv-unified", "-fa", "on", "-ctk", "q8_0", "-ctv", "q8_0", "-b", "1024", "-cms", "1024", "--cache-ram", "0", "-ot", "per_layer_token_embd\\.weight=CPU", "-t", "4", "--poll", "0", "--jinja"]
+# -t 4 --poll 0: with every layer on the GPU the CPU only looks up the per-layer embeddings; its
+# threads need not be many, nor busy-wait (default --poll 50) on cores speech recognition uses.
 # Gemma-family models (Gemma 4, Nemotron-3.5-Bolt-E4B) use sliding-window layers: llama-server can
 # only resume a cached prompt from a saved context checkpoint at or before the first difference.
 # Measured: "forcing full prompt re-processing due to lack of cache data (likely due to SWA)"

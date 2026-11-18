@@ -144,3 +144,74 @@ def test_early_plan_transcribes_the_audio_so_far_and_prefetches(monkeypatch):
         if t.name == "early-plan":
             t.join(2)
     assert started == [("Jarvis, quelle heure est-il ?", "fr", True)] and me._early_plan_busy is False
+
+
+def _segment_listener(transcribed, prefetched, *, fail=False):
+    import numpy as np
+    from jarvis.listening.listener import VoiceListener, _SpeechSegments
+
+    def fake_transcribe(audio):
+        if fail:
+            raise RuntimeError("boom")
+        transcribed.append(len(audio))
+        return (f"part{len(transcribed)}", "fr", ())
+
+    me = types.SimpleNamespace(
+        tts=None, _segments=_SpeechSegments(), _utterance_frames=[np.ones(320, np.float32)] * 20,
+        _samplerate=16000, _stream_samplerate=16000, _transcribe_audio=fake_transcribe,
+        state_manager=types.SimpleNamespace(is_hot_window_active=lambda: False,
+                                            is_collecting=lambda: False,
+                                            get_pending_query=lambda: ""),
+        _leading_wake_word=lambda text, speaking: True, _canonical_query=lambda text: text,
+        _start_plan_prefetch=lambda q, lang, loose=False: prefetched.append(q))
+    me._frames_audio = lambda frames: VoiceListener._frames_audio(me, frames)
+    me._transcribe_audio_full = None
+    return me, VoiceListener
+
+
+def _join_segment_threads():
+    import threading as th
+    for t in th.enumerate():
+        if t.name == "stt-segment":
+            t.join(2)
+
+
+def test_endpoint_transcribes_only_the_tail_after_the_last_pause():
+    import numpy as np
+    transcribed, prefetched = [], []
+    me, VL = _segment_listener(transcribed, prefetched)
+    VL._transcribe_segment(me, 20)                  # pause after 20 frames
+    _join_segment_threads()
+    assert transcribed == [20 * 320] and prefetched == ["part1"]
+    frames = me._utterance_frames + [np.ones(320, np.float32)] * 10   # user went on
+    job = types.SimpleNamespace(audio=np.concatenate(frames), frames=frames, segments=me._segments)
+    text, lang, _ = VL._transcribe_job(me, job)
+    assert transcribed == [20 * 320, 10 * 320]      # tail only, never the whole utterance again
+    assert text == "part1 part2" and lang == "fr"
+
+
+def test_no_speech_after_the_pause_means_no_model_call_at_the_endpoint():
+    import numpy as np
+    transcribed, prefetched = [], []
+    me, VL = _segment_listener(transcribed, prefetched)
+    VL._transcribe_segment(me, 20)
+    _join_segment_threads()
+    job = types.SimpleNamespace(audio=np.concatenate(me._utterance_frames),
+                                frames=list(me._utterance_frames), segments=me._segments)
+    assert VL._transcribe_job(me, job)[0] == "part1"
+    assert len(transcribed) == 1
+    assert prefetched == ["part1"]                  # same text as the dispatched query: plan reused
+
+
+def test_failed_segment_falls_back_to_the_whole_utterance():
+    import numpy as np
+    transcribed, prefetched = [], []
+    me, VL = _segment_listener(transcribed, prefetched, fail=True)
+    VL._transcribe_segment(me, 20)
+    _join_segment_threads()
+    calls = []
+    me._transcribe_audio = lambda audio: calls.append(len(audio)) or ("full", "fr", ())
+    job = types.SimpleNamespace(audio=np.concatenate(me._utterance_frames),
+                                frames=list(me._utterance_frames), segments=me._segments)
+    assert VL._transcribe_job(me, job)[0] == "full" and calls == [20 * 320]
+    assert prefetched == []

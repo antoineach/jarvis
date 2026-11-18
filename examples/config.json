@@ -130,6 +130,7 @@
   "wake_word_skips_judge": false,
   "prewarm_prompt_cache": false,
   "early_plan_silence_ms": 0,
+  "incremental_stt": true,
   "persona_style": "butler",
   "memory_write": "all",
   "tool_carryover_max_turns": 2,
