@@ -9,7 +9,7 @@ Depuis ce dossier, dans Bash, avec Python 3.12, un pilote NVIDIA fonctionnel et 
 ```bash
 sudo apt-get install build-essential cmake ninja-build python3-dev libsndfile1 sox ffmpeg
 python3.12 -m venv .teacher
-.teacher/bin/pip install qwen-tts soundfile 'onnx-asr[cpu,hub]'
+.teacher/bin/pip install qwen-tts soundfile num2words==0.5.14 'onnx-asr[cpu,hub]'
 .teacher/bin/python -c 'import torch; print(torch.cuda.get_device_name(0))'
 .teacher/bin/huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir models/qwen
 .teacher/bin/huggingface-cli download istupakov/parakeet-tdt-0.6b-v3-onnx --include "*.int8.onnx" "nemo128.onnx" "vocab.txt" "config.json" --local-dir models/parakeet
@@ -72,3 +72,15 @@ Chaque essai produit les WAV et un `metrics.json` avec temps de chargement, prem
 Pour sélectionner le checkpoint, garder les mêmes phrases inédites et le même volume d’écoute. Comparer les WAV dans un ordre masqué avec ceux du professeur (générer `heldout-fr.txt` dans un dossier distinct) et écouter la référence réelle. Relever séparément mots incorrects, ressemblance et naturel. Départager les candidats de qualité proche par le p95 et la mémoire mesurés sur le M4. Un objectif de premier bloc à chaud sous 300 ms sur les répliques courtes est une cible à tester. Le code impose moins de 100 millions d’éléments de poids à l’export. Aucune mesure matérielle ni supériorité sur les autres voix du marché n’est présumée.
 
 Pour préparer l’écoute à l’aveugle, lancer `python3 blind.py ecoute resultats-siwis resultats-essai-1` (ajouter autant de dossiers candidats que nécessaire). Remplir `ecoute/scores.csv` puis ouvrir `ecoute/key.csv` pour retrouver les modèles.
+
+### Comparer Qwen et Piper sur les mêmes phrases
+
+Sur l’Ada, lancer de nouveau la commande `distill.py generate` avec le même modèle, la même référence et la même transcription, en remplaçant les deux dernières options par `--sentences heldout-fr.txt --dataset data/eval-qwen`. Copier le dossier `eval-qwen` sur la machine d’écoute, puis lancer par exemple :
+
+```bash
+python3 blind.py ecoute-qwen eval-qwen resultats-essai-1
+```
+
+Les deux sources sont appariées sur le texte exact. Si Qwen a sauté une phrase, relancer la génération dans le même dossier pour la compléter.
+
+La curation française développe les entiers et les horaires courants des deux transcriptions avant de calculer le CER. Le rapport conserve le texte original, la prédiction et le score. Les abréviations, décimaux et lectures ambiguës demandent encore une vérification. Pour les phrases de huit caractères normalisés ou moins avec une seule erreur, examiner les entrées `review_short` de `review.jsonl`, écouter les WAV, puis placer uniquement les clés confirmées dans un fichier (une par ligne). Relancer la même curation avec `--approved-short fichier.txt` pour les inclure.

@@ -1,12 +1,28 @@
 """Select intelligible teacher recordings for a Piper fine-tune."""
 import argparse
 import json
+import re
 from pathlib import Path
 import unicodedata
 
 
 def normalize(text):
     return "".join(c for c in unicodedata.normalize("NFKC", text.casefold()) if c.isalnum())
+
+
+def french_text(text):
+    from num2words import num2words
+
+    def clock(match):
+        hour = int(match[1])
+        minute = int(match[2] or match[3] or 0)
+        unit = "heure" if hour < 2 else "heures"
+        hours = f"{hour} {unit}" if hour != 1 else "une heure"
+        return f"{hours} {minute}" if minute else hours
+
+    text = re.sub(r"(?<!\w)([01]?\d|2[0-3])\s*(?:h\s*([0-5]\d)?|:([0-5]\d))(?!\w)",
+                  clock, text, flags=re.I)
+    return re.sub(r"(?<!\w)[0-9]{1,15}(?!\w)", lambda m: num2words(int(m[0]), lang="fr"), text)
 
 
 def cer(reference, prediction):
@@ -26,13 +42,18 @@ def main():
     parser.add_argument("--asr", type=Path, required=True)
     parser.add_argument("--heldout", type=Path, required=True)
     parser.add_argument("--max-cer", type=float, default=0.12)
+    parser.add_argument("--approved-short", type=Path,
+                        help="One reviewed clip key per line, for borderline short phrases")
     args = parser.parse_args()
+    approved = set(args.approved_short.read_text().splitlines()) if args.approved_short else set()
+    language = json.loads((args.dataset / "voice.json").read_text())["language"]
+    spoken = french_text if language == "French" else str
     import onnx_asr
     import soundfile as sf
 
     asr = onnx_asr.load_model("nemo-parakeet-tdt-0.6b-v3", path=str(args.asr), quantization="int8",
                               providers=["CPUExecutionProvider"])
-    heldout = {normalize(t) for t in args.heldout.read_text("utf8").splitlines()}
+    heldout = {normalize(spoken(t)) for t in args.heldout.read_text("utf8").splitlines()}
     kept = []
     total_seconds = 0
     manifest = args.dataset / "metadata.csv"
@@ -44,18 +65,26 @@ def main():
             wav = args.dataset / "wav" / (key + ".wav")
             seconds = sf.info(wav).duration
             prediction = ""
-            reason = "heldout" if normalize(text) in heldout else ""
+            score = None
+            manually_kept = False
+            reason = "heldout" if normalize(spoken(text)) in heldout else ""
             if not reason and not 0.25 <= seconds <= 20:
                 reason = "duration"
             if not reason:
                 prediction = asr.recognize(str(wav))
-                if cer(text, prediction) > args.max_cer:
-                    reason = "transcript"
+                target = spoken(text)
+                score = cer(target, spoken(prediction))
+                if score > args.max_cer:
+                    size = len(normalize(target))
+                    borderline = 1 <= size <= 8 and normalize(prediction) and round(score * size) == 1
+                    manually_kept = bool(borderline and key in approved)
+                    if not manually_kept:
+                        reason = "review_short" if borderline else "transcript"
             if not reason:
                 kept.append(f"{wav.name}|{text}\n")
                 total_seconds += seconds
             report.write(json.dumps(dict(key=key, text=text, prediction=prediction, reason=reason,
-                                         seconds=seconds), ensure_ascii=False) + "\n")
+                                         seconds=seconds, cer=score, approved_short=manually_kept), ensure_ascii=False) + "\n")
     tmp = args.dataset / "accepted.tmp"
     tmp.write_text("".join(kept), encoding="utf8")
     tmp.replace(args.dataset / "accepted.csv")
