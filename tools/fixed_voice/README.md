@@ -2,6 +2,10 @@
 
 L’Ada 32 Go sert à fabriquer le corpus avec Qwen3-TTS Base 1.7B et à affiner Piper VITS medium depuis SIWIS. Le Mac mini M4 utilise seulement Piper sur CPU, le fichier ONNX et sa configuration. Le LLM peut continuer à utiliser Metal. Le nombre de paramètres, le poids du fichier, la mémoire du processus et le délai avant le premier bloc audio sont des mesures distinctes.
 
+## 0. Avant d’entraîner : mesurer Reverb-TTS
+
+[Reverb-TTS](https://huggingface.co/software-mansion/Reverb-TTS) (297 M, français inclus, clonage zéro-shot sur 3 à 10 s de référence, poids CC BY-NC 4.0 : usage non commercial seulement) annonce plus de 20× le temps réel sur Apple M4 Pro en batch 1. Le streaming, le CPU et ONNX ne sont pas mentionnés. Avant de lancer des heures de génération et d’entraînement, mesurer sur le matériel cible avec `heldout-fr.txt` : délai avant le premier son d’une phrase de 2 à 3 s, mémoire, ressemblance avec la référence. S’il tient environ 10× le temps réel avec un délai court, il peut remplacer Qwen3 à l’exécution sans distillation, ou servir de professeur plus rapide. Un élève appris sur ses sorties reste soumis à la clause non commerciale.
+
 ## 1. Installer sur l’Ada (Linux ou WSL2)
 
 Depuis ce dossier, dans Bash, avec Python 3.12, un pilote NVIDIA fonctionnel et suffisamment de place pour les modèles, le cache audio et plusieurs checkpoints. Les environnements séparés évitent de faire dépendre Qwen du jeu de dépendances de Lightning.
@@ -28,7 +32,7 @@ Si `huggingface-cli` est remplacé par `hf` dans ta version du Hub, utilise `.te
 
 ## 2. Valider la voix puis fabriquer le corpus
 
-Préparer un extrait propre de la voix cible, une seule personne, sans musique ni réverbération marquée, et sa transcription exacte en UTF-8. Comparer d’abord les seize phrases pilotes à l’extrait réel. Écouter le timbre, les fins de phrases, l’accent et les questions. Un mauvais clone au stade professeur justifie de changer d’extrait avant de générer plusieurs heures. Utiliser un nouveau dossier de données si la référence change.
+Préparer un extrait propre de la voix cible, une seule personne, sans musique ni réverbération marquée, et sa transcription exacte en UTF-8. Si l’enregistrement contient du bruit de fond, le nettoyer une fois avec [inworld/voice-isolator](https://huggingface.co/inworld/voice-isolator) (Apache-2.0, 48 kHz) puis réécouter : il retire le bruit, pas une autre voix, et ne restaure pas ce qui manque. Le clone du professeur, donc tout le corpus, hérite de la qualité de cet extrait. Comparer d’abord les seize phrases pilotes à l’extrait réel. Écouter le timbre, les fins de phrases, l’accent et les questions. Un mauvais clone au stade professeur justifie de changer d’extrait avant de générer plusieurs heures. Utiliser un nouveau dossier de données si la référence change.
 
 ```bash
 .teacher/bin/python distill.py generate --teacher models/qwen --reference reference.wav --transcript reference.txt --language French --sentences pilot-fr.txt --dataset data/fr
@@ -84,3 +88,7 @@ python3 blind.py ecoute-qwen eval-qwen resultats-essai-1
 Les deux sources sont appariées sur le texte exact. Si Qwen a sauté une phrase, relancer la génération dans le même dossier pour la compléter.
 
 La curation française développe les entiers et les horaires courants des deux transcriptions avant de calculer le CER. Le rapport conserve le texte original, la prédiction et le score. Les abréviations, décimaux et lectures ambiguës demandent encore une vérification. Pour les phrases de huit caractères normalisés ou moins avec une seule erreur, examiner les entrées `review_short` de `review.jsonl`, écouter les WAV, puis placer uniquement les clés confirmées dans un fichier (une par ligne). Relancer la même curation avec `--approved-short fichier.txt` pour les inclure.
+
+## Avant de committer
+
+Le dépôt est public. `git config user.email` doit renvoyer l’adresse `…@users.noreply.github.com` du compte GitHub, jamais une adresse personnelle. Sur GitHub (Settings → Emails), activer « Keep my email addresses private » et « Block command line pushes that expose my email ». À faire sur chaque machine et dans chaque environnement d’agent qui committe.
