@@ -1,0 +1,16 @@
+.teacher/
+.trainer/
+.mac/
+models/
+vendor/
+data/
+runs/
+voices/
+resultats*/
+ecoute/
+reference.*
+*.onnx*
+*.bz2
+*.sources.tsv
+train-fr.txt
+__pycache__/

@@ -54,14 +54,22 @@ def generate(args):
         key = hashlib.sha256(line.encode()).hexdigest()
         wav = wav_dir / (key + ".wav")
         if not wav.exists():
-            waves, rate = model.generate_voice_clone(text=line, language=args.language, voice_clone_prompt=prompt)
-            samples = np.asarray(waves[0]).squeeze()
-            if samples.ndim != 1 or not samples.size or not np.isfinite(samples).all() or not np.any(samples):
-                raise ValueError(f"Invalid teacher audio for {key}")
-            tmp = wav.with_suffix(".partial.wav")
-            sf.write(tmp, samples, rate)
-            tmp.replace(wav)
+            try:
+                waves, rate = model.generate_voice_clone(text=line, language=args.language, voice_clone_prompt=prompt)
+                samples = np.asarray(waves[0]).squeeze()
+                if samples.ndim != 1 or not samples.size or not np.isfinite(samples).all() or not np.any(samples):
+                    raise ValueError(f"Invalid teacher audio for {key}")
+                tmp = wav.with_suffix(".partial.wav")
+                sf.write(tmp, samples, rate)
+                tmp.replace(wav)
+            except torch.cuda.OutOfMemoryError:
+                raise
+            except (ValueError, RuntimeError) as exc:
+                print(f"⚠️ Skipped {key}: {exc}", file=sys.stderr)
+                continue
         rows.append(f"{key}|{line}\n")
+    if not rows:
+        raise RuntimeError("No usable teacher recordings")
     tmp = args.dataset / "metadata.tmp"
     tmp.write_text("".join(rows), encoding="utf8")
     tmp.replace(args.dataset / "metadata.csv")
@@ -73,13 +81,28 @@ def piper(module, *args):
 
 def train(args):
     language = json.loads((args.dataset / "voice.json").read_text())["language"]
-    args.work.mkdir(parents=True, exist_ok=False)
-    piper("piper_train.preprocess", "--language", LANGUAGES[language], "--input-dir", args.dataset,
-          "--output-dir", args.work, "--dataset-format", "ljspeech", "--single-speaker", "--sample-rate", 22050)
-    piper("piper_train", "--dataset-dir", args.work, "--default_root_dir", args.work,
-          "--accelerator", "gpu", "--devices", 1, "--batch-size", args.batch_size,
-          "--max_epochs", args.epochs, "--checkpoint-epochs", 1, "--num-test-examples", 0,
-          "--validation-split", 0.05, "--precision", 32)
+    csv = args.dataset / "accepted.csv"
+    manifest = args.dataset / "metadata.csv"
+    digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    if (args.dataset / "accepted.source").read_text() != digest:
+        raise ValueError("Run curate.py on the current teacher manifest")
+    if not csv.stat().st_size:
+        raise ValueError("No accepted recordings")
+    if not (args.resume or args.base).is_file():
+        raise ValueError("Checkpoint does not exist")
+    args.work.mkdir(parents=True, exist_ok=bool(args.resume))
+    signature = dict(dataset=str(args.dataset.resolve()), csv=hashlib.sha256(csv.read_bytes()).hexdigest())
+    state = args.work / "dataset.json"
+    if args.resume and json.loads(state.read_text()) != signature:
+        raise ValueError("Resume requires the original curated dataset")
+    state.write_text(json.dumps(signature))
+    ckpt = ["--ckpt_path", args.resume] if args.resume else ["--model.warmstart_ckpt", args.base]
+    piper("piper.train", "fit", "--data.voice_name", "jarvis", "--data.csv_path", csv.resolve(),
+          "--data.audio_dir", (args.dataset / "wav").resolve(), "--model.sample_rate", 22050,
+          "--data.espeak_voice", LANGUAGES[language], "--data.cache_dir", (args.work / "cache").resolve(),
+          "--data.config_path", (args.work / "config.json").resolve(), "--data.batch_size", args.batch_size,
+          "--trainer.accelerator", "gpu", "--trainer.devices", 1, "--trainer.default_root_dir", args.work.resolve(),
+          "--trainer.max_epochs", args.epochs, "--seed_everything", 42, *ckpt)
 
 
 def export(args):
@@ -91,7 +114,7 @@ def export(args):
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=args.output) as scratch:
         model = Path(scratch) / "voice.onnx"
-        piper("piper_train.export_onnx", args.checkpoint, model)
+        piper("piper.train.export_onnx", "--checkpoint", args.checkpoint, "--output-file", model)
         graph = onnx.load(str(model))
         onnx.checker.check_model(graph)
         count = sum(math.prod(t.dims) for t in graph.graph.initializer)
@@ -113,8 +136,11 @@ def main():
     fit = commands.add_parser("train")
     fit.add_argument("--dataset", type=Path, required=True)
     fit.add_argument("--work", type=Path, required=True)
+    source = fit.add_mutually_exclusive_group(required=True)
+    source.add_argument("--base", type=Path)
+    source.add_argument("--resume", type=Path)
     fit.add_argument("--epochs", type=int, default=2000)
-    fit.add_argument("--batch-size", type=int, default=16)
+    fit.add_argument("--batch-size", type=int, default=32)
     out = commands.add_parser("export")
     for name in ("work", "checkpoint", "output"):
         out.add_argument("--" + name, type=Path, required=True)
